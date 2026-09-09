@@ -77,12 +77,24 @@ body.is-mac-app .topbar{top:38px}
 body.is-mac-app .month__label{top:calc(38px + 56px)}
 body.is-mac-app .course-side{top:calc(38px + 64px)}
 
-/* Hinweis auf eine neuere Fassung */
-.update{border:1px solid var(--accent);background:var(--accent-soft);border-radius:var(--r);
-        padding:var(--pad);margin-bottom:14px}
-.update h3{font-size:.92rem;font-weight:700}
-.update ol{margin:9px 0 0;padding-left:19px;font-size:.81rem;color:var(--muted);line-height:1.65}
-.update ol b{color:var(--ink);font-weight:600}
+/* Hinweis auf eine neuere Fassung: kurze Einblendung, kein Dauerbanner. */
+.updatebox{
+  position:fixed;right:18px;bottom:18px;z-index:55;width:300px;max-width:calc(100vw - 36px);
+  background:var(--card);border:1px solid var(--accent);border-radius:var(--r);
+  padding:12px 13px;box-shadow:0 14px 36px rgba(0,0,0,.28);
+  animation:updateIn .22s ease-out;
+}
+@keyframes updateIn{ from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+.updatebox h3{font-size:.87rem;font-weight:700}
+.updatebox p{margin-top:4px;font-size:.78rem;color:var(--muted);line-height:1.5}
+.updatebox .controls{margin-top:10px;gap:6px}
+.updatebox .btn{height:calc(var(--ctl) - 2px);padding:0 11px;font-size:.79rem}
+.updatebox__close{
+  position:absolute;top:7px;right:8px;width:20px;height:20px;border-radius:5px;
+  color:var(--muted);font-size:.95rem;line-height:1;display:flex;align-items:center;justify-content:center;
+}
+.updatebox__close:hover{color:var(--ink);background:var(--soft)}
+.update-line{display:flex;align-items:center;gap:8px;font-size:.82rem}
 .topbar__title{font-size:.98rem;font-weight:700;letter-spacing:-.01em}
 .topbar__sub{font-size:.75rem;color:var(--muted);margin-top:1px}
 .topbar__spacer{flex:1}
@@ -93,6 +105,17 @@ body.is-mac-app .course-side{top:calc(38px + 64px)}
 }
 .icon-btn:hover,.back:hover{color:var(--ink);border-color:var(--muted)}
 .icon-btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.icon-btn{position:relative}
+.icon-btn--busy{color:var(--accent);border-color:var(--accent)}
+.icon-btn--busy svg{animation:spin 1s linear infinite}
+.icon-btn--ok{color:var(--ok);border-color:var(--ok)}
+@keyframes spin{ to{ transform:rotate(360deg) } }
+/* Kleiner Punkt statt Zahl: dass etwas offen ist, genuegt hier. */
+.icon-btn__dot{
+  position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;
+  background:var(--warn);border:2px solid var(--bg);
+}
+.icon-btn__dot--bad{background:var(--bad)}
 
 /* ---------- Reiter ---------- */
 .nav{display:flex;gap:3px;padding:3px;border-radius:var(--r);background:var(--soft);border:1px solid var(--line)}
@@ -175,6 +198,44 @@ body.is-mac-app .course-side{top:calc(38px + 64px)}
 .course-item b{display:block;font-size:.85rem;font-weight:600}
 .course-item small{display:block;font-size:.71rem;color:var(--muted);margin-top:1px}
 
+/* ---------- Stundenansicht ---------- */
+.lesson-nav{display:flex;gap:3px;padding:3px;border-radius:var(--r);background:var(--soft);border:1px solid var(--line)}
+.lesson-nav button{
+  width:calc(var(--ctl) - 6px);height:calc(var(--ctl) - 6px);border-radius:calc(var(--r) - 2px);
+  display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:1rem;
+}
+.lesson-nav button:hover:not(:disabled){background:var(--card);color:var(--ink)}
+.lesson-nav button:disabled{opacity:.3;cursor:default}
+
+.lesson-head{
+  display:flex;align-items:center;gap:14px;padding:12px 14px;background:var(--card);
+  border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:12px;
+}
+.lesson-head__slot{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-width:46px;height:46px;border-radius:9px;background:var(--accent-soft);color:var(--accent);
+  font-weight:800;font-size:1.15rem;line-height:1;flex:0 0 auto;
+}
+.lesson-head__slot small{font-size:.55rem;opacity:.75;font-weight:700;margin-top:2px}
+.lesson-head__main{flex:1;min-width:0}
+.lesson-head__meta{font-size:.74rem;font-weight:700;color:var(--accent);letter-spacing:.02em}
+.lesson-head__title{font-size:1.08rem;font-weight:700;margin-top:1px;line-height:1.25}
+.lesson-head__goal{font-size:.8rem;color:var(--muted);margin-top:4px;line-height:1.5}
+.lesson-head__right{display:flex;flex-direction:column;align-items:flex-end;gap:7px;flex:0 0 auto}
+.lesson-head__bar{width:120px}
+
+.segtabs{display:flex;gap:3px;padding:3px;border-radius:var(--r);background:var(--soft);
+         border:1px solid var(--line);margin-bottom:12px;width:fit-content}
+.segtabs button{
+  display:inline-flex;align-items:center;gap:7px;height:calc(var(--ctl) - 4px);padding:0 14px;
+  border-radius:calc(var(--r) - 2px);font-size:.83rem;font-weight:600;color:var(--muted);
+}
+.segtabs button:hover{color:var(--ink)}
+.segtabs button[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
+.segtabs .tabcount{font-size:.72rem;font-weight:700;color:var(--muted);
+                   background:var(--soft);border-radius:4px;padding:1px 5px}
+.segtabs button[aria-selected="true"] .tabcount{background:var(--accent-soft);color:var(--accent)}
+
 .month{margin-bottom:16px}
 .month__label{font-size:.69rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
               padding:0 2px 6px;position:sticky;top:56px;background:var(--bg);z-index:5}
@@ -190,6 +251,44 @@ body.is-mac-app .course-side{top:calc(38px + 64px)}
 .ltable .c-title{font-weight:600}
 .ltable .c-state{width:88px;text-align:right}
 .ltable .c-prog{width:64px}
+
+/* ---------- Ablauf: Schritte links, Bühne rechts ---------- */
+.flow{display:grid;grid-template-columns:232px minmax(0,1fr);gap:14px;align-items:start}
+@media(max-width:900px){ .flow{grid-template-columns:1fr} }
+
+.flow-steps{
+  position:sticky;top:64px;display:flex;flex-direction:column;gap:3px;
+  border:1px solid var(--line);border-radius:var(--r);background:var(--card);
+  padding:5px;box-shadow:var(--shadow);max-height:calc(100vh - 96px);overflow-y:auto;
+}
+body.is-mac-app .flow-steps{top:calc(64px + 38px);max-height:calc(100vh - 134px)}
+.flow-steps__label{font-size:.65rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+                   color:var(--muted);padding:6px 8px 4px}
+.stepitem{
+  display:flex;align-items:flex-start;gap:8px;padding:7px 8px;border-radius:6px;
+  text-align:left;width:100%;color:var(--ink);border:1px solid transparent;
+}
+.stepitem:hover{background:var(--soft)}
+.stepitem--current{background:var(--accent-soft);border-color:var(--accent)}
+.stepitem--done{color:var(--muted)}
+.stepitem__num{
+  width:19px;height:19px;border-radius:5px;background:var(--soft);flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;margin-top:1px;
+}
+.stepitem--current .stepitem__num{background:var(--accent);color:var(--accent-ink)}
+.stepitem--done .stepitem__num{background:var(--ok-soft);color:var(--ok)}
+.stepitem__title{font-size:.8rem;font-weight:600;line-height:1.35;flex:1;min-width:0}
+.stepitem--done .stepitem__title{font-weight:500}
+.stepitem__mark{font-size:.62rem;font-weight:700;color:var(--muted);flex:0 0 auto;margin-top:2px}
+.stepitem--done .stepitem__mark{color:var(--ok)}
+.stepitem__note{width:5px;height:5px;border-radius:50%;background:var(--warn);flex:0 0 auto;margin-top:7px}
+
+/* Steuerung sitzt in der rechten Spalte unter den Hinweisen – dort ist Platz,
+   und der Blick muss nicht ans untere Ende der Buehne wandern. */
+.flow-side{display:flex;flex-direction:column;gap:10px}
+.side-controls{display:flex;flex-direction:column;gap:7px}
+.side-controls .row > .btn{flex:1}
+.side-controls .hint{font-size:.74rem;color:var(--muted);text-align:center;margin-top:1px}
 
 /* ---------- Live-Cockpit ---------- */
 .cockpit{display:grid;grid-template-columns:1.35fr .65fr;gap:var(--gap);align-items:start}
@@ -452,7 +551,7 @@ var state = null;
 var ui = {
   view:"today", lessonId:null, tab:"flow", sheet:null, toast:null, toastTimer:null,
   fullscreen:false, courseId:null, courseFilter:"upcoming", courseSearch:"", searchFocus:false,
-  update:null, busy:false, connDraft:null
+  update:null, updateBoxOpen:false, busy:false, connDraft:null, syncState:"idle", lessonContext:"today"
 };
 
 function freshState(){
@@ -869,31 +968,75 @@ function pushLive(){
       }
     });
 
+    /* Freigaben wirken erst, wenn die Schueler-Seite neu erzeugt wurde.
+       Der Server macht das selbst und meldet, ob es geklappt hat. */
+    var failed = (res.published||[]).filter(function(x){ return x && x.ok===false; });
+
     state.lastSync = now(); save();
-    return { sent:sent, conflicts:conflicts };
+    return { sent:sent, conflicts:conflicts, publishFailed:failed.length };
   });
 }
 
 /* Reihenfolge: erst senden, dann holen. Sonst ueberschreibt ein Abruf
-   eigene Aenderungen, die der Server noch gar nicht kennt. */
+   eigene Aenderungen, die der Server noch gar nicht kennt.
+
+   Bewusst still bei Erfolg: Wer abgleicht, erwartet dass es klappt. Eine
+   Meldung gibt es nur, wenn etwas zu entscheiden ist (Konflikte) oder etwas
+   schiefging. Rueckmeldung ueber den Knopf selbst, nicht ueber eine Blase. */
+var syncOkTimer = null;
 function doSync(){
   if(ui.busy) return;
-  ui.busy = true; render();
+  ui.busy = true;
+  ui.syncState = "busy";
+  if(syncOkTimer){ clearTimeout(syncOkTimer); syncOkTimer = null; }
+  render();
 
   var live = state.conn.connected && apiAvailable();
   var run = live
     ? pushLive().then(function(p){ return pullLive().then(function(q){ return {p:p,q:q}; }); })
     : Promise.resolve({ p:pushDemo(), q:pullDemo() });
 
-  run.then(function(r){
-    var msg = (r.p.sent||0)+" übertragen, "+((r.q.added||0)+(r.q.updated||0))+" geladen";
-    var conf = (r.p.conflicts||0)+(r.q.conflicts||0);
-    toast(conf ? conf+" Konflikt(e) – bitte entscheiden" : msg);
+  return run.then(function(r){
+    var conf = (r.p.conflicts||0) + (r.q.conflicts||0);
+    if(conf){
+      ui.syncState = "idle";
+      toast(conf===1 ? "Ein Konflikt – bitte entscheiden" : conf+" Konflikte – bitte entscheiden");
+      ui.view = "sync";                       // dorthin, wo entschieden wird
+    } else if(r.p.publishFailed){
+      /* Uebertragen hat geklappt, aber die Schueler-Seite ist noch die alte –
+         das muss man wissen, sonst wundert man sich vor der Klasse. */
+      ui.syncState = "idle";
+      toast("Übertragen – aber die Schüler-Seite konnte nicht erneuert werden (SFTP prüfen)");
+    } else {
+      ui.syncState = "ok";                    // kurzes Haekchen am Knopf
+      syncOkTimer = setTimeout(function(){ ui.syncState="idle"; render(); }, 2000);
+    }
   }).catch(function(err){
+    ui.syncState = "idle";
     toast(err && err.message ? err.message : "Abgleich fehlgeschlagen");
   }).then(function(){
     ui.busy = false; render();
   });
+}
+
+/* Der Knopf in der Kopfzeile – von jeder Ansicht aus erreichbar. */
+function syncButton(){
+  var pend = pendingChanges().length;
+  var conf = state.conflicts.length;
+  var cls = ui.syncState==="busy" ? " icon-btn--busy" : ui.syncState==="ok" ? " icon-btn--ok" : "";
+  var icon = ui.syncState==="ok"
+    ? '<path d="M5 13l4 4L19 7"/>'
+    : '<path d="M21 12a9 9 0 0 1-15.5 6.2M3 12A9 9 0 0 1 18.5 5.8"/><path d="M3 20v-5h5M21 4v5h-5"/>';
+  var title = ui.syncState==="busy" ? "Abgleich läuft …"
+    : conf ? conf+" Konflikt(e) – bitte entscheiden"
+    : pend ? "Abgleichen – "+pend+" Änderung(en) offen"
+    : (state.conn.connected ? "Mit der Nextcloud abgleichen" : "Abgleich simulieren");
+
+  return '<button class="icon-btn'+cls+'" data-sync="1"'+(ui.busy?" disabled":"")+' title="'+esc(title)+'">'
+    + '<svg viewBox="0 0 24 24">'+icon+'</svg>'
+    + (conf ? '<span class="icon-btn__dot icon-btn__dot--bad"></span>'
+            : pend ? '<span class="icon-btn__dot"></span>' : '')
+    + '</button>';
 }
 
 /* ---------- Verbindung ---------- */
@@ -943,40 +1086,59 @@ function disconnect(){
    Aktionen im Unterricht
    Geschrieben wird ausschliesslich an den Elementen: published und isCurrent.
    ========================================================================= */
-function startLesson(id){
-  var its = itemsOf(id);
+/* Die Freigabe folgt der Position: Alles bis zum aktuellen Schritt ist
+   freigegeben, alles danach nicht. Gehst du zurueck, wird die Freigabe der
+   spaeteren Schritte wieder zurueckgenommen – sonst zeigt die Schuelerseite
+   Dinge, die im Unterricht laengst wieder zu sind.
+   targetIndex === Anzahl der Schritte bedeutet: Stunde abgeschlossen. */
+function setProgress(lessonId, targetIndex){
+  var its = itemsOf(lessonId);
   if(!its.length) return;
-  its.forEach(function(i){ if(i.isCurrent){ i.isCurrent=false; touchItem(i); } });
-  its[0].isCurrent = true; touchItem(its[0]);
-  render();
+  var last = its.length;
+  if(targetIndex < 0) targetIndex = 0;
+  if(targetIndex > last) targetIndex = last;
+
+  its.forEach(function(i, n){
+    var published = n < targetIndex || (n === targetIndex && targetIndex < last);
+    var current   = n === targetIndex && targetIndex < last;
+    if(i.published !== published || i.isCurrent !== current){
+      i.published = published;
+      i.isCurrent = current;
+      touchItem(i);
+    }
+  });
 }
-function nextStep(id){
-  var its = itemsOf(id);
+function currentIndex(lessonId){
+  var its = itemsOf(lessonId);
   var idx = its.findIndex(function(i){ return i.isCurrent; });
-  if(idx < 0){ startLesson(id); return; }
-  var cur = its[idx];
-  cur.isCurrent = false;
-  if(!cur.published) cur.published = true;
-  touchItem(cur);
-  if(idx < its.length-1){ its[idx+1].isCurrent = true; touchItem(its[idx+1]); }
-  render();
+  if(idx >= 0) return idx;
+  // Kein aktueller Schritt: entweder noch nicht gestartet oder abgeschlossen.
+  return its.some(function(i){ return i.published; }) ? its.length : -1;
 }
+
+function startLesson(id){ setProgress(id, 0); render(); }
+function nextStep(id){ setProgress(id, currentIndex(id) + 1); render(); }
 function prevStep(id){
-  var its = itemsOf(id);
-  var idx = its.findIndex(function(i){ return i.isCurrent; });
-  if(idx < 0){ idx = its.length; }            // nach Stundenende zurueckspringen
+  var idx = currentIndex(id);
   if(idx <= 0) return;
-  if(its[idx]){ its[idx].isCurrent=false; touchItem(its[idx]); }
-  its[idx-1].isCurrent = true; touchItem(its[idx-1]);
+  setProgress(id, idx - 1);
   render();
 }
 function jumpTo(lessonId, itemId){
-  itemsOf(lessonId).forEach(function(i){
-    var want = i.id===itemId;
-    if(i.isCurrent !== want){ i.isCurrent = want; touchItem(i); }
+  var its = itemsOf(lessonId);
+  var idx = its.findIndex(function(i){ return i.id===itemId; });
+  if(idx < 0) return;
+  setProgress(lessonId, idx);
+  render();
+}
+function resetLesson(id){
+  var its = itemsOf(id);
+  its.forEach(function(i){
+    if(i.published || i.isCurrent){ i.published=false; i.isCurrent=false; touchItem(i); }
   });
   render();
 }
+
 function togglePublish(itemId){
   var it = state.local.items.filter(function(i){ return i.id===itemId; })[0];
   if(!it) return;
@@ -1015,31 +1177,48 @@ function checkForUpdate(){
       var latest = String(rel.tag_name).replace(/^v/,"");
       if(latest===skipped || !isNewer(latest, window.spo.version)) return;
       ui.update = { version:latest, url: rel.html_url || ("https://github.com/"+UPDATE_REPO+"/releases/latest") };
-      render();
+      openUpdateBox();
     })
     .catch(function(){});
 }
-function updateBanner(){
-  if(!ui.update) return "";
-  var mac = window.spo && window.spo.platform==="darwin";
-  var steps = mac
-    ? '<li><b>Herunterladen</b> – die Datei <code>.dmg</code> vom Release.</li>'
-      + '<li><b>App beenden.</b></li>'
-      + '<li>Neue App in den Ordner <b>Programme</b> ziehen und das Ersetzen bestätigen.</li>'
-      + '<li>Beim ersten Start: <b>Rechtsklick auf die App → Öffnen</b>, dann noch einmal Öffnen. '
-      + 'Die Meldung kommt, weil die App nicht signiert ist.</li>'
-    : '<li><b>Herunterladen</b> – Installationsdatei vom Release.</li>'
-      + '<li><b>App beenden.</b></li>'
-      + '<li>Installation ausführen und die vorhandene Fassung ersetzen.</li>';
-  return '<div class="update">'
-    + '<div class="between"><h3>Version '+esc(ui.update.version)+' ist verfügbar</h3>'
-    + '<span class="small muted">installiert: '+esc(window.spo.version)+'</span></div>'
-    + '<p class="small muted" style="margin-top:5px;line-height:1.55">'
-    + 'Deine erfassten Daten bleiben dabei erhalten – sie liegen im Nutzerprofil, nicht in der App. '
-    + 'Vor dem Wechsel am besten einmal abgleichen.</p>'
-    + '<ol>'+steps+'</ol>'
-    + '<div class="controls"><button class="btn btn--primary" data-relopen="1">Zur Download-Seite</button>'
-    + '<button class="btn btn--ghost" data-relskip="1">Diese Version überspringen</button></div></div>';
+
+/* Die Einblendung geht beim Start auf und nach kurzer Zeit von selbst wieder
+   zu. Wer sie wegklickt oder verpasst, findet den Hinweis weiterhin unter
+   "Abgleich" - dauerhaft ueber allem kleben soll er nicht. */
+var updateBoxTimer = null;
+function openUpdateBox(){
+  ui.updateBoxOpen = true;
+  if(updateBoxTimer) clearTimeout(updateBoxTimer);
+  updateBoxTimer = setTimeout(function(){ closeUpdateBox(); }, 12000);
+  render();
+}
+function closeUpdateBox(){
+  if(updateBoxTimer){ clearTimeout(updateBoxTimer); updateBoxTimer = null; }
+  ui.updateBoxOpen = false;
+  render();
+}
+function skipUpdate(){
+  if(ui.update){ try{ localStorage.setItem(UPDATE_SKIP_KEY, ui.update.version); }catch(e){} }
+  ui.update = null;
+  closeUpdateBox();
+}
+function openReleasePage(){
+  if(!ui.update) return;
+  if(window.spo && window.spo.openExternal) window.spo.openExternal(ui.update.url);
+  else window.open(ui.update.url, "_blank");
+}
+
+function updateBox(){
+  if(!ui.update || !ui.updateBoxOpen) return "";
+  return '<div class="updatebox">'
+    + '<button class="updatebox__close" data-relclose="1" title="Schließen">&times;</button>'
+    + '<h3>Version '+esc(ui.update.version)+' ist verfügbar</h3>'
+    + '<p>Installiert ist '+esc(window.spo.version)+'. Deine erfassten Daten bleiben beim '
+    + 'Aktualisieren erhalten.</p>'
+    + '<div class="controls">'
+    +   '<button class="btn btn--primary" data-relopen="1">Herunterladen</button>'
+    +   '<button class="btn btn--ghost" data-relskip="1">Nicht mehr zeigen</button>'
+    + '</div></div>';
 }
 
 /* =========================================================================
@@ -1252,25 +1431,135 @@ function viewCourses(){
     + '<div class="course-main">'+toolbar+main+'</div></div>';
 }
 
+/* Vor- und Zurueckblaettern innerhalb der Liste, aus der die Stunde geoeffnet
+   wurde: aus "Heute" durch den Tag, aus "Kurse" durch den Kurs. Das entspricht
+   dem, was man im Kopf hat, wenn man auf den Pfeil drueckt. */
+function lessonSiblings(){
+  var l = lesson(ui.lessonId);
+  if(!l) return { list:[], index:-1, prev:null, next:null, label:"Zurück", scope:"" };
+
+  function sorted(arr){
+    return arr.sort(function(a,b){
+      return a.lessonDate===b.lessonDate ? a.lessonSlot-b.lessonSlot : (a.lessonDate<b.lessonDate?-1:1);
+    });
+  }
+  function courseList(){
+    var today = iso(new Date());
+    var q = ui.courseSearch.trim().toLowerCase();
+    return sorted(state.local.lessons.filter(function(x){
+      if(x.courseId!==l.courseId) return false;
+      if(ui.lessonContext==="course"){
+        if(ui.courseFilter==="upcoming" && x.lessonDate < today) return false;
+        if(ui.courseFilter==="open" && lessonStatus(x)==="done") return false;
+        if(q && (x.title+" "+(x.goal||"")).toLowerCase().indexOf(q)<0) return false;
+      }
+      return true;
+    }));
+  }
+
+  var list, scope, label;
+  if(ui.lessonContext==="course"){
+    list = courseList(); scope = "course";
+    label = (course(l.courseId)||{}).name || "Kurse";
+  } else {
+    /* Aus "Heute" blaettert man durch die eigene Zeitleiste nach vorn – quer
+       ueber alle Kurse, genau wie die Ansicht sie zeigt (heute, dann was als
+       Naechstes kommt). Ein Tag hat oft nur eine Stunde; eine reine Tagesliste
+       waere damit fast immer leer. */
+    var todayIso = iso(new Date());
+    var from = l.lessonDate < todayIso ? l.lessonDate : todayIso;
+    list = sorted(state.local.lessons.filter(function(x){ return x.lessonDate >= from; }));
+    scope = "timeline"; label = "Heute";
+  }
+
+  var idx = list.findIndex(function(x){ return x.id===l.id; });
+  return {
+    list:list, index:idx, label:label, scope:scope,
+    prev: idx>0 ? list[idx-1] : null,
+    next: (idx>=0 && idx<list.length-1) ? list[idx+1] : null
+  };
+}
+function gotoLesson(id){
+  ui.lessonId = id;
+  window.scrollTo(0,0);
+  render();
+}
+
 function viewLesson(){
   var l = lesson(ui.lessonId);
   if(!l) return '<div class="empty">Stunde nicht gefunden.</div>';
   var c = course(l.courseId) || {name:"",participationScale:""};
   var its = itemsOf(l.id), status = lessonStatus(l), s = stageData(l);
 
-  var head = '<div class="card"><div class="between"><div>'
-    + '<div class="lesson__course">'+esc(c.name)+' · '+deShort(l.lessonDate)+' · '+l.lessonSlot+'. Stunde</div>'
-    + '<h2 style="margin-top:3px;font-size:1.1rem">'+esc(l.title)+'</h2></div>'+statusBadge(l)+'</div>'
-    + (l.goal ? '<p class="small muted" style="margin-top:8px;line-height:1.55">'+esc(l.goal)+'</p>' : '')
-    + '</div>';
+  var stt0 = partStats(l), prog0 = Math.round(lessonProgress(l)*100);
 
-  var tabs = '<div class="row" style="margin:12px 0 10px;gap:6px">'
-    + '<button class="btn '+(ui.tab==="flow"?"btn--primary":"")+'" data-tab="flow">Ablauf</button>'
-    + '<button class="btn '+(ui.tab==="part"?"btn--primary":"")+'" data-tab="part">Mitarbeit</button></div>';
+  var head = '<div class="lesson-head">'
+    + '<div class="lesson-head__slot">'+l.lessonSlot+'<small>Std</small></div>'
+    + '<div class="lesson-head__main">'
+    +   '<div class="lesson-head__meta">'+esc(c.name)+' · '+deLong(l.lessonDate)+'</div>'
+    +   '<div class="lesson-head__title">'+esc(l.title)+'</div>'
+    +   (l.goal ? '<div class="lesson-head__goal">'+esc(l.goal)+'</div>' : '')
+    + '</div>'
+    + '<div class="lesson-head__right">'+statusBadge(l)
+    +   '<div class="lesson-head__bar"><div class="bar" style="margin:0"><i style="width:'+prog0+'%"></i></div></div>'
+    +   '<div class="small muted">'+its.length+' Schritte</div>'
+    + '</div></div>';
+
+  var openCount = stt0.grading ? stt0.graded : stt0.marked;
+  var tabs = '<div class="segtabs" role="tablist">'
+    + '<button role="tab" aria-selected="'+(ui.tab==="flow")+'" data-tab="flow">Ablauf'
+    +   '<span class="tabcount">'+its.length+'</span></button>'
+    + '<button role="tab" aria-selected="'+(ui.tab==="part")+'" data-tab="part">Mitarbeit'
+    +   '<span class="tabcount">'+openCount+'/'+stt0.total+'</span></button>'
+    + '</div>';
 
   var body;
   if(ui.tab==="flow"){
-    var cockpit = "";
+    var idxNow = currentIndex(l.id);
+
+    /* Schrittliste links: dauerhaft sichtbar, direkt anspringbar. */
+    var stepList = '<aside class="flow-steps"><div class="flow-steps__label">Ablauf</div>'
+      + its.map(function(i,n){
+          var cls = i.isCurrent ? "stepitem--current" : i.published ? "stepitem--done" : "";
+          return '<button class="stepitem '+cls+'" data-jump="'+i.id+'" title="'+esc(i.title)+'">'
+            + '<span class="stepitem__num">'+(n+1)+'</span>'
+            + '<span class="stepitem__title">'+esc(i.title)+'</span>'
+            + (i.teacherNote ? '<span class="stepitem__note" title="Hinweis hinterlegt"></span>' : '')
+            + '<span class="stepitem__mark">'+(i.published?"frei":"")+'</span>'
+            + '</button>';
+        }).join("")
+      + '</aside>';
+
+    /* Steuerung */
+    var nav1;
+    if(status==="planned"){
+      nav1 = '<button class="btn btn--primary btn--wide" data-start="'+l.id+'">Stunde starten</button>';
+    } else if(!s.item){
+      nav1 = '<div class="row"><button class="btn" data-prev="'+l.id+'">Zurück</button>'
+        + '<button class="btn btn--primary" data-tab="part">Mitarbeit</button></div>';
+    } else {
+      var last = s.step>=s.total;
+      nav1 = '<div class="row">'
+        + '<button class="btn" data-prev="'+l.id+'"'+(idxNow<=0?" disabled":"")+'>Zurück</button>'
+        + '<button class="btn btn--primary" data-next="'+l.id+'">'+(last?"Abschließen":"Weiter")+'</button>'
+        + '</div><div class="hint">← → oder Leertaste</div>';
+    }
+    var project = status==="planned" ? "" :
+      '<div class="row">'
+      + '<button class="btn btn--ghost" data-present="1" title="Zweites Fenster für den Beamer">'
+      +   (presenterOpen()?"Präsentation schließen":"Präsentation")+'</button>'
+      + '<button class="btn btn--ghost" data-fs="1" title="Vollbild auf diesem Bildschirm">Vollbild</button>'
+      + '</div>';
+    /* Gegenstueck zu "Stunde starten": von vorn beginnen oder ganz schliessen.
+       Beides nimmt Freigaben zurueck, deshalb dezent und erst ab dem Start. */
+    var restart = status==="planned" ? "" :
+      '<div class="row" style="margin-top:2px">'
+      + '<button class="btn btn--ghost" data-restart="'+l.id+'" title="Zurück zu Schritt 1 – spätere Freigaben werden zurückgenommen">Neu starten</button>'
+      + '<button class="btn btn--ghost" data-reopen="'+l.id+'" title="Alle Freigaben zurücknehmen, Stunde gilt wieder als geplant">Zurücksetzen</button>'
+      + '</div>';
+    var sideControls = '<div class="side-controls">'+nav1+project+restart+'</div>';
+
+    var cockpit;
     if(status!=="planned"){
       var stage = '<div class="panel panel--stage">'
         + '<div class="panel__label"><span class="dot"></span>Für die Klasse'
@@ -1287,40 +1576,18 @@ function viewLesson(){
               + (s.next.teacherNote ? '<div class="teacher-note">'+esc(s.next.teacherNote)+'</div>' : '')+'</div>'
             : '<div class="next"><b>Als Nächstes</b>'+(s.item?"Letzter Schritt der Stunde":"Stunde beendet")+'</div>')
         + '</div>';
-      cockpit = '<div class="cockpit">'+stage+notes+'</div>';
-    }
-
-    var nav1, project="";
-    if(status==="planned"){
-      nav1 = '<button class="btn btn--primary" data-start="'+l.id+'">Stunde starten</button>';
-    } else if(!s.item){
-      nav1 = '<button class="btn" data-prev="'+l.id+'">Zurück</button>'
-        + '<button class="btn btn--primary" data-tab="part">Mitarbeit prüfen</button>';
+      cockpit = '<div class="cockpit">'+stage
+        + '<div class="flow-side">'+notes+sideControls+'</div></div>';
     } else {
-      var last = s.step>=s.total;
-      nav1 = '<button class="btn" data-prev="'+l.id+'"'+(s.step<=1?" disabled":"")+'>Zurück</button>'
-        + '<button class="btn btn--primary" data-next="'+l.id+'">'+(last?"Stunde abschließen":"Weiter")+'</button>'
-        + '<span class="small muted" style="margin-left:4px">Schritt '+s.step+' von '+s.total+' · ← → oder Leertaste</span>';
-    }
-    if(status!=="planned"){
-      project = '<span class="spacer"></span>'
-        + '<button class="btn btn--ghost" data-present="1" title="Zweites Fenster für den Beamer">'
-        + (presenterOpen()?"Präsentation schließen":"Präsentationsfenster")+'</button>'
-        + '<button class="btn btn--ghost" data-fs="1" title="Vollbild auf diesem Bildschirm">Vollbild</button>';
+      cockpit = '<div class="cockpit">'
+        + '<div class="panel"><div class="panel__label">Noch nicht gestartet</div>'
+        +   '<p class="small muted" style="line-height:1.55">Solange die Stunde nicht läuft, ist kein Element '
+        +   'für die Klasse freigegeben. Links siehst du den geplanten Ablauf; ein Klick auf einen Schritt '
+        +   'startet dort.</p></div>'
+        + '<div class="flow-side">'+sideControls+'</div></div>';
     }
 
-    var steps = '<div class="section-title">Ablauf</div>' + its.map(function(i,n){
-      var cls = i.isCurrent ? "step--current" : i.published ? "step--done" : "";
-      return '<div class="step '+cls+'" data-jump="'+i.id+'">'
-        + '<div class="step__num">'+(n+1)+'</div><div class="step__body">'
-        + '<div class="between"><div class="step__title">'+esc(i.title)+'</div>'
-        + '<button class="badge '+(i.published?"badge--done":"badge--planned")+'" data-pub="'+i.id+'">'
-        + (i.published?"freigegeben":"intern")+'</button></div>'
-        + (i.teacherNote ? '<div class="note"><b>Nur für dich</b>'+esc(i.teacherNote)+'</div>' : '')
-        + '</div></div>';
-    }).join("");
-
-    body = cockpit + '<div class="controls">'+nav1+project+'</div>' + steps;
+    body = '<div class="flow">'+stepList+'<div class="flow-main">'+cockpit+'</div></div>';
   } else {
     var scale = c.participationScale||"", marks = gradesFor(scale), grading = marks.length>0;
     var rows = studentsOf(c.id).map(function(st2){
@@ -1405,7 +1672,14 @@ function viewSync(){
       + '</div></div>';
   }
 
-  var html = '<div class="section-title">Verbindung</div>'+conn
+  var upd = ui.update
+    ? '<div class="card" style="margin-bottom:var(--gap)"><div class="update-line">'
+      + '<span class="dot"></span><span>Version <b>'+esc(ui.update.version)+'</b> ist verfügbar.</span>'
+      + '<span style="flex:1"></span>'
+      + '<button class="btn btn--ghost" data-relopen="1">Herunterladen</button></div></div>'
+    : "";
+
+  var html = upd + '<div class="section-title">Verbindung</div>'+conn
     + '<div class="section-title">Abgleich</div><div class="card">'
     + '<div class="kv"><span class="muted">Letzter Abgleich</span><b>'+relTime(state.lastSync)+'</b></div>'
     + '<div class="kv"><span class="muted">Offene Änderungen</span><b style="color:'+(pend.length?"var(--warn)":"var(--ok)")+'">'+pend.length+'</b></div>'
@@ -1448,21 +1722,46 @@ function viewSync(){
 /* ---------- Rahmen ---------- */
 function topbar(){
   var title, sub, back="";
+
+  /* Die Stundenansicht ist eine Detailansicht: statt der globalen Reiter gibt
+     es hier den Rueckweg und das Blaettern zwischen den Stunden. */
   if(ui.view==="lesson"){
     var l = lesson(ui.lessonId);
-    back = '<button class="back" data-back="1">‹</button>';
-    title = "Stunde"; sub = l ? deShort(l.lessonDate)+" · "+l.lessonSlot+". Stunde" : "";
-  } else if(ui.view==="courses"){ title="Kurse"; sub=state.meta.courses.length+" Kurse"; }
+    var sib = lessonSiblings();
+    back = '<button class="back" data-back="1" title="Zurück zu '+esc(sib.label)+'">‹</button>';
+    title = sib.label;
+    sub = l ? (course(l.courseId)||{}).name+" · "+deShort(l.lessonDate)
+            + (sib.index>=0 && sib.list.length>1
+                ? " · "+(sib.index+1)+" von "+sib.list.length+(sib.scope==="course"?" im Kurs":" ab heute")
+                : "") : "";
+
+    var stepper = '<div class="lesson-nav">'
+      + '<button data-lprev="1"'+(sib.prev?"":" disabled")
+      +   ' title="'+(sib.prev?esc(sib.prev.lessonSlot+". Stunde · "+sib.prev.title):"Keine frühere Stunde")+'">‹</button>'
+      + '<button data-lnext="1"'+(sib.next?"":" disabled")
+      +   ' title="'+(sib.next?esc(sib.next.lessonSlot+". Stunde · "+sib.next.title):"Keine spätere Stunde")+'">›</button>'
+      + '</div>';
+
+    var themeBtnL = '<button class="icon-btn" data-themeswitch="1" title="Erscheinungsbild: '
+      + ({system:"System",light:"Hell",dark:"Dunkel"}[themePref])+'">'
+      + '<svg viewBox="0 0 24 24">'+THEME_ICON[themePref]+'</svg></button>';
+
+    return '<div class="topbar">'+back
+      + '<div><div class="topbar__title">'+esc(title)+'</div><div class="topbar__sub">'+esc(sub)+'</div></div>'
+      + '<div class="topbar__spacer"></div>'+stepper+syncButton()+themeBtnL+'</div>';
+  }
+
+  if(ui.view==="courses"){ title="Kurse"; sub=state.meta.courses.length+" Kurse"; }
   else if(ui.view==="sync"){ title="Abgleich"; sub=(state.conn.connected?"verbunden · ":"Demo · ")+"zuletzt "+relTime(state.lastSync); }
   else { title="Heute"; sub=deLong(iso(new Date())); }
 
-  var themeBtn = '<button class="icon-btn" data-theme="1" title="Erscheinungsbild: '
+  var themeBtn = '<button class="icon-btn" data-themeswitch="1" title="Erscheinungsbild: '
     + ({system:"System",light:"Hell",dark:"Dunkel"}[themePref])+'">'
     + '<svg viewBox="0 0 24 24">'+THEME_ICON[themePref]+'</svg></button>';
 
   return '<div class="topbar">'+back
     + '<div><div class="topbar__title">'+title+'</div><div class="topbar__sub">'+sub+'</div></div>'
-    + '<div class="topbar__spacer"></div>'+nav()+themeBtn+'</div>';
+    + '<div class="topbar__spacer"></div>'+nav()+syncButton()+themeBtn+'</div>';
 }
 
 function nav(){
@@ -1513,8 +1812,8 @@ function render(){
     : viewLesson();
 
   document.getElementById("app").innerHTML =
-    '<div class="titlebar"></div><div class="app">'+topbar()+updateBanner()+body+'</div>'
-    + sheet()+overlay()+(ui.toast ? '<div class="toast">'+esc(ui.toast)+'</div>' : '');
+    '<div class="titlebar"></div><div class="app">'+topbar()+body+'</div>'
+    + sheet()+overlay()+updateBox()+(ui.toast ? '<div class="toast">'+esc(ui.toast)+'</div>' : '');
 
   var ta = document.getElementById("noteInput");
   if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
@@ -1539,7 +1838,7 @@ document.addEventListener("click", function(ev){
   var el = ev.target.closest("[data-go],[data-open],[data-back],[data-tab],[data-start],[data-next],"
     + "[data-prev],[data-jump],[data-pub],[data-status],[data-grade],[data-note],[data-savenote],"
     + "[data-sheetbg],[data-sync],[data-keep],[data-simulate],[data-reset],[data-present],[data-fs],"
-    + "[data-fsexit],[data-theme],[data-course],[data-cfilter],[data-relopen],[data-relskip],"
+    + "[data-fsexit],[data-lprev],[data-lnext],[data-reopen],[data-restart],[data-themeswitch],[data-course],[data-cfilter],[data-relopen],[data-relskip],[data-relclose],"
     + "[data-conntest],[data-connedit],[data-conncancel],[data-disconnect]");
   if(!el) return;
   var d = el.dataset;
@@ -1551,25 +1850,26 @@ document.addEventListener("click", function(ev){
   }
   if(d.sheetbg){ if(ev.target===el || el.classList.contains("btn")){ ui.sheet=null; render(); } return; }
 
-  if(d.relopen){
-    if(window.spo && window.spo.openExternal) window.spo.openExternal(ui.update.url);
-    else window.open(ui.update.url, "_blank");
-    return;
-  }
-  if(d.relskip){
-    try{ localStorage.setItem(UPDATE_SKIP_KEY, ui.update.version); }catch(e){}
-    ui.update=null; render(); return;
-  }
+  if(d.relopen){ openReleasePage(); closeUpdateBox(); return; }
+  if(d.relskip){ skipUpdate(); return; }
+  if(d.relclose){ closeUpdateBox(); return; }
 
   if(d.conntest){ testConnection(connDraftFromDom()); return; }
   if(d.connedit){ ui.connDraft = { baseUrl:state.conn.baseUrl, user:state.conn.user, password:"" }; render(); return; }
   if(d.conncancel){ ui.connDraft = null; render(); return; }
   if(d.disconnect){ disconnect(); return; }
 
-  if(d.theme){ cycleTheme(); return; }
+  if(d.lprev){ var sp=lessonSiblings(); if(sp.prev) gotoLesson(sp.prev.id); return; }
+  if(d.lnext){ var sn=lessonSiblings(); if(sn.next) gotoLesson(sn.next.id); return; }
+  if(d.themeswitch){ cycleTheme(); return; }
   if(d.go){ ui.view=d.go; window.scrollTo(0,0); render(); return; }
-  if(d.back){ ui.view="today"; render(); return; }
-  if(d.open){ ui.view="lesson"; ui.lessonId=parseInt(d.open,10); ui.tab="flow"; window.scrollTo(0,0); render(); return; }
+  if(d.back){ ui.view = ui.lessonContext==="course" ? "courses" : "today"; render(); return; }
+  if(d.open){
+    // Herkunft VOR dem Wechsel merken – danach ist ui.view immer "lesson".
+    if(ui.view==="courses" || ui.view==="today") ui.lessonContext = (ui.view==="courses") ? "course" : "today";
+    ui.view="lesson"; ui.lessonId=parseInt(d.open,10); ui.tab="flow";
+    window.scrollTo(0,0); render(); return;
+  }
   if(d.tab){ ui.tab=d.tab; render(); return; }
   if(d.course){ ui.courseId=parseInt(d.course,10); ui.courseSearch=""; render(); return; }
   if(d.cfilter){ ui.courseFilter=d.cfilter; render(); return; }
@@ -1579,6 +1879,8 @@ document.addEventListener("click", function(ev){
   if(d.prev){ prevStep(parseInt(d.prev,10)); return; }
   if(d.pub){ ev.stopPropagation(); togglePublish(parseInt(d.pub,10)); return; }
   if(d.jump){ jumpTo(ui.lessonId, parseInt(d.jump,10)); return; }
+  if(d.reopen){ resetLesson(parseInt(d.reopen,10)); return; }
+  if(d.restart){ setProgress(parseInt(d.restart,10), 0); render(); return; }
 
   if(d.status){
     var a = d.status.split("|"), sid = parseInt(a[0],10);
@@ -1640,13 +1942,30 @@ document.addEventListener("keydown", function(ev){
   if(ui.sheet) return;
   var tag = ev.target && ev.target.tagName;
   if(tag==="TEXTAREA" || tag==="INPUT" || tag==="SELECT") return;
-  if(ui.view!=="lesson" || ui.tab!=="flow") return;
+  if(ui.view!=="lesson") return;
   var l = lesson(ui.lessonId);
-  if(!l || lessonStatus(l)==="planned") return;
+  if(!l) return;
 
+  // Escape: erst das Vollbild verlassen, sonst zurueck zur Liste.
+  if(ev.key==="Escape"){
+    if(ui.fullscreen) exitFullscreen();
+    else { ui.view = ui.lessonContext==="course" ? "courses" : "today"; render(); }
+    return;
+  }
+
+  // Alt + Pfeil blaettert zwischen den Stunden – aus beiden Reitern heraus.
+  if(ev.altKey && (ev.key==="ArrowRight" || ev.key==="ArrowLeft")){
+    ev.preventDefault();
+    var sib = lessonSiblings();
+    var target = ev.key==="ArrowRight" ? sib.next : sib.prev;
+    if(target) gotoLesson(target.id);
+    return;
+  }
+
+  // Durch die Schritte nur im Ablauf und erst ab dem Start.
+  if(ui.tab!=="flow" || lessonStatus(l)==="planned") return;
   if(ev.key==="ArrowRight" || ev.key==="PageDown" || ev.key===" "){ ev.preventDefault(); nextStep(l.id); }
   else if(ev.key==="ArrowLeft" || ev.key==="PageUp"){ ev.preventDefault(); prevStep(l.id); }
-  else if(ev.key==="Escape" && ui.fullscreen){ exitFullscreen(); }
 });
 document.addEventListener("fullscreenchange", function(){
   if(!document.fullscreenElement && ui.fullscreen){ ui.fullscreen=false; render(); }

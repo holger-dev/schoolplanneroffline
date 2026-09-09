@@ -40,8 +40,20 @@ npm run serve      # oder: python3 -m http.server 8080
 Auf dem Tablet über „Zum Home-Bildschirm hinzufügen" installieren.
 
 **Als Desktop-App** – fertige Pakete liegen unter
-[Releases](https://github.com/holger-dev/schoolplanneroffline/releases):
-`.dmg` für macOS, `.exe` für Windows, `.AppImage` für Linux.
+[Releases](https://github.com/holger-dev/schoolplanneroffline/releases).
+
+**macOS: die richtige Architektur wählen.** Die Dateinamen tragen sie am Ende:
+
+| Datei                  | Für                                              |
+|------------------------|--------------------------------------------------|
+| `…-arm64.dmg`          | Apple Silicon (M1 und neuer) – der Normalfall     |
+| `…-x64.dmg`            | Intel-Macs (bis 2020)                             |
+
+Welchen Mac du hast, steht unter  → *Über diesen Mac*. Die Intel-Fassung
+liefe auf Apple Silicon zwar über Rosetta, aber langsamer – und macOS warnt
+bereits, dass die Unterstützung dafür ausläuft.
+
+Windows und Linux gibt es nur als 64-Bit-Fassung, dort ist nichts zu wählen.
 
 Selbst bauen:
 
@@ -54,7 +66,20 @@ npm run dist:mac   # .dmg für Apple Silicon und Intel nach dist/
 `dist:win` und `dist:linux` bauen NSIS-Installer bzw. AppImage – jeweils **auf
 dem Zielsystem**. Genau das macht die GitHub-Action automatisch.
 
-### macOS: Hinweis von Gatekeeper beim ersten Start
+### macOS: Signatur und Gatekeeper
+
+Die App wird beim Bauen **ad-hoc signiert** (`codesign --sign -`, siehe
+`electron/afterPack.js`). Das ist keine Signatur mit Zertifikat, aber ohne sie
+verweigert Apple Silicon den Start komplett: macOS verlangt dort für jeden
+ausführbaren Code eine gültige Signatur. Electron liefert seine Binärdateien
+signiert aus, electron-builder baut das Paket jedoch um und macht die Signatur
+damit ungültig – die App gilt dann als „beschädigt".
+
+Was die Ad-hoc-Signatur **nicht** löst: den Gatekeeper-Hinweis beim ersten
+Start. Dafür bräuchte es einen Apple-Developer-Account (99 $/Jahr) und
+Notarisierung.
+
+#### Hinweis von Gatekeeper beim ersten Start
 
 Die App ist **nicht signiert und nicht notarisiert** – ein
 Apple-Developer-Account kostet 99 $ im Jahr, und für ein Werkzeug im eigenen

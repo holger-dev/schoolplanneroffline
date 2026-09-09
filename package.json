@@ -50,7 +50,10 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
     },
     "win": {
       "target": [
@@ -60,7 +63,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -75,7 +79,9 @@
           ]
         }
       ],
-      "category": "Education"
-    }
+      "category": "Education",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "afterPack": "electron/afterPack.js"
   }
 }
