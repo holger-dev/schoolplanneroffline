@@ -37,7 +37,8 @@
       {
         "provider": "github",
         "owner": "holger-dev",
-        "repo": "schoolplanneroffline"
+        "repo": "schoolplanneroffline",
+        "releaseType": "release"
       }
     ],
     "mac": {

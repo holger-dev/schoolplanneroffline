@@ -166,6 +166,13 @@ Die Action `.github/workflows/release.yml` baut auf drei Läufern parallel
 Die Versionsnummer im Tag ist zugleich das, womit die App ihren Hinweis
 vergleicht – ein Release ohne Tag-Version bleibt also unbemerkt.
 
+**Wichtig:** In der `package.json` steht unter `build.publish` der Eintrag
+`"releaseType": "release"`. Ohne ihn will electron-builder in einen **Entwurf**
+veröffentlichen, findet ein bereits veröffentlichtes Release vor und
+überspringt das Anhängen – mit der Meldung `skipped publishing … existingType=release
+publishingType=draft`. Der Job bleibt dabei **grün**, es hängt nur nichts am
+Release. Genau dieser Fall hat bei v0.2.2 zugeschlagen.
+
 Über *Actions → Run workflow* lässt sich der Build auch ohne Release testen; die
 Pakete landen dann als Artefakte statt am Release.
 
