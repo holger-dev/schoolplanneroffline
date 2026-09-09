@@ -16,5 +16,15 @@ contextBridge.exposeInMainWorld("spo", {
   isDesktop: true,
   version: argValue("--spo-version="),
   platform: argValue("--spo-platform="),
-  openExternal: (url) => ipcRenderer.invoke("open-external", url)
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
+
+  // Zugangsdaten: Das Passwort geht nur hinein, nie wieder heraus.
+  creds: {
+    load: () => ipcRenderer.invoke("creds:load"),
+    save: (data) => ipcRenderer.invoke("creds:save", data),
+    clear: () => ipcRenderer.invoke("creds:clear")
+  },
+
+  // Anfragen an die Nextcloud laufen im Hauptprozess – kein CORS.
+  api: (req) => ipcRenderer.invoke("api:request", req)
 });

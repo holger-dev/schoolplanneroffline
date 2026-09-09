@@ -18,22 +18,22 @@ jobs:
         include:
           - os: macos-latest
             label: macOS (dmg)
-            build: npm run dist:mac
+            script: "dist:mac"
           - os: windows-latest
             label: Windows (exe)
-            build: npm run dist:win
+            script: "dist:win"
           - os: ubuntu-latest
             label: Linux (AppImage)
-            build: npm run dist:linux
+            script: "dist:linux"
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
 
       - name: Install dependencies
@@ -54,16 +54,27 @@ jobs:
             console.log('Version gesetzt auf', p.version);
           "
 
-      # electron-builder haengt die Artefakte samt latest*.yml direkt an das
-      # Release. Die yml-Dateien sind die Grundlage der Selbstaktualisierung –
-      # ohne sie findet electron-updater kein Update.
-      - name: Build and publish
+      # Wichtig: das "--" trennt die Argumente fuer npm von denen fuer
+      # electron-builder. Ohne die Trennung landet "--publish never" bei npm,
+      # und electron-builder bekommt ein unbekanntes Argument "never".
+      - name: Build
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS bleibt unsigniert: ohne Apple-Zertifikat wuerde der Schritt
           # sonst mit einem Signaturfehler abbrechen.
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: ${{ matrix.build }} --publish ${{ github.event_name == 'release' && 'always' || 'never' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            npm run ${{ matrix.script }} -- --publish always
+          else
+            npm run ${{ matrix.script }} -- --publish never
+          fi
+
+      - name: Show build output
+        if: always()
+        shell: bash
+        run: ls -la dist || true
 
       - name: Upload artifacts (bei manuellem Lauf)
         if: github.event_name == 'workflow_dispatch'

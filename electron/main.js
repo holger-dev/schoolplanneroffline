@@ -13,8 +13,9 @@
  * über Neustarts und über App-Updates hinweg.
  */
 
-const { app, BrowserWindow, protocol, screen, shell, Menu, net, ipcMain } = require("electron");
+const { app, BrowserWindow, protocol, screen, shell, Menu, net, ipcMain, safeStorage } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const { pathToFileURL } = require("url");
 
 const ROOT = path.join(__dirname, "..");
@@ -143,6 +144,119 @@ function buildMenu() {
  */
 ipcMain.handle("open-external", (_event, url) => {
   if (typeof url === "string" && /^https:\/\//.test(url)) shell.openExternal(url);
+});
+
+/* =========================================================================
+ * Zugangsdaten und Anfragen an die Nextcloud
+ *
+ * Beides liegt bewusst im Hauptprozess:
+ *   1. Das App-Passwort wird mit safeStorage verschlüsselt (Schlüsselbund
+ *      bzw. Anmeldeinformationsverwaltung) und gelangt nie in die Seite
+ *      zurück – die Oberfläche erfährt nur, DASS eines hinterlegt ist.
+ *   2. Die HTTP-Anfragen laufen hier und nicht im Renderer. Sonst wäre jede
+ *      Anfrage an die Nextcloud ein Cross-Origin-Aufruf und würde an CORS
+ *      scheitern.
+ * ========================================================================= */
+const CRED_FILE = () => path.join(app.getPath("userData"), "connection.bin");
+let creds = null;                       // { baseUrl, user, password }
+
+function normalizeBase(url) {
+  let u = String(url || "").trim();
+  if (u === "") return "";
+  if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+  return u.replace(/\/+$/, "");
+}
+
+function loadCreds() {
+  if (creds) return creds;
+  try {
+    const raw = fs.readFileSync(CRED_FILE());
+    const json = safeStorage.isEncryptionAvailable()
+      ? safeStorage.decryptString(raw)
+      : raw.toString("utf8");
+    creds = JSON.parse(json);
+  } catch (err) {
+    creds = null;
+  }
+  return creds;
+}
+
+ipcMain.handle("creds:load", () => {
+  const c = loadCreds();
+  return c ? { baseUrl: c.baseUrl, user: c.user, hasPassword: !!c.password } : null;
+});
+
+ipcMain.handle("creds:save", (_event, data) => {
+  const next = {
+    baseUrl: normalizeBase(data && data.baseUrl),
+    user: String((data && data.user) || "").trim(),
+    password: String((data && data.password) || "")
+  };
+  if (!next.password && creds && creds.password) next.password = creds.password;
+
+  const json = JSON.stringify(next);
+  const buf = safeStorage.isEncryptionAvailable()
+    ? safeStorage.encryptString(json)
+    : Buffer.from(json, "utf8");
+  fs.writeFileSync(CRED_FILE(), buf, { mode: 0o600 });
+  creds = next;
+
+  return { baseUrl: next.baseUrl, user: next.user, hasPassword: !!next.password };
+});
+
+ipcMain.handle("creds:clear", () => {
+  creds = null;
+  try { fs.unlinkSync(CRED_FILE()); } catch (err) { /* war nie da */ }
+  return true;
+});
+
+ipcMain.handle("api:request", async (_event, req) => {
+  const c = loadCreds();
+  if (!c || !c.baseUrl || !c.user || !c.password) {
+    return { ok: false, status: 0, error: "Keine Zugangsdaten hinterlegt." };
+  }
+
+  const method = (req && req.method) === "POST" ? "POST" : "GET";
+  const query = new URLSearchParams(
+    Object.entries((req && req.query) || {}).filter(([, v]) => v !== "" && v != null)
+  ).toString();
+  const url = c.baseUrl + "/index.php/apps/schoolplanner/api/v1"
+    + String((req && req.path) || "") + (query ? "?" + query : "");
+
+  const headers = {
+    Authorization: "Basic " + Buffer.from(c.user + ":" + c.password).toString("base64"),
+    Accept: "application/json",
+    "OCS-APIRequest": "true"
+  };
+  const init = { method, headers };
+  if (method === "POST") {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify((req && req.body) || {});
+  }
+
+  try {
+    const response = await net.fetch(url, init);
+    const text = await response.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (err) { data = null; }
+
+    if (data === null) {
+      // Kommt HTML zurueck, stimmt meist die Adresse nicht – oder ein
+      // Anmeldeportal im Schulnetz hat sich dazwischengeschoben.
+      return {
+        ok: false, status: response.status,
+        error: response.status === 401
+          ? "Benutzername oder App-Passwort stimmt nicht."
+          : "Keine gültige Antwort (Adresse prüfen: mit /index.php/apps/schoolplanner erreichbar?)."
+      };
+    }
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: "Server meldet " + response.status, data };
+    }
+    return { ok: true, status: response.status, data };
+  } catch (err) {
+    return { ok: false, status: 0, error: "Server nicht erreichbar (" + (err && err.message) + ")." };
+  }
 });
 
 app.whenReady().then(() => {

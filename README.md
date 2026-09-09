@@ -5,9 +5,28 @@ Begleiter fürs Klassenzimmer zur Nextcloud-App
 durchführen, Anwesenheit und Mitarbeit erfassen – **ohne Netz**. Abends wird
 alles zurück in die Nextcloud gespielt.
 
-> **Status: Prototyp mit Demodaten.** Es gibt noch keine Serververbindung. Die
-> Nextcloud wird lokal simuliert, damit sich der komplette Workflow inklusive
-> Konflikten durchspielen lässt, bevor die Sync-API gebaut wird.
+> **Status: Prototyp.** Die App kann sich mit einer echten Nextcloud verbinden
+> (benötigt **School Planner 1.3.0**) – ohne Zugangsdaten läuft sie gegen einen
+> simulierten Server, damit sich der Ablauf inklusive Konflikten auch ohne
+> Cloud durchspielen lässt.
+
+## Mit der Nextcloud verbinden
+
+Nur in der Desktop-App: *Abgleich → Verbindung*. Nötig sind die Adresse der
+Cloud, der Benutzername und ein **App-Passwort** (Nextcloud → Einstellungen →
+Sicherheit → Geräte & Sitzungen → *Neues App-Passwort erstellen*). Ausführlich
+beschrieben in
+[`docs/api-sync.md`](https://github.com/holger-dev/schoolplanner/blob/main/docs/api-sync.md)
+im Hauptrepo.
+
+Das App-Passwort wird über `safeStorage` verschlüsselt im Schlüsselbund bzw. der
+Anmeldeinformationsverwaltung abgelegt und gelangt **nie zurück in die
+Oberfläche** – die weiß nur, dass eines hinterlegt ist. Die HTTP-Anfragen laufen
+im Hauptprozess, nicht in der Seite; im Browser wäre jede Anfrage an die
+Nextcloud ein seitenübergreifender Aufruf und würde blockiert.
+
+Beim Abgleich gilt: **erst senden, dann holen.** Sonst überschreibt ein Abruf
+eigene Änderungen, die der Server noch gar nicht kennt.
 
 ## Ausprobieren
 

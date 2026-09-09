@@ -297,26 +297,33 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background
 "use strict";
 
 /* =========================================================================
-   School Planner Offline – Prototyp
-   Zero-Build: nur diese Datei. Alle Daten liegen im localStorage.
-   "Nextcloud" wird lokal simuliert (state.server), damit sich der komplette
-   Workflow inklusive Konflikten ohne Server durchspielen laesst.
+   School Planner Offline
+   Zero-Build: nur diese Datei. Daten liegen im localStorage.
+
+   Zwei Betriebsarten:
+   - "demo": ohne Zugangsdaten; ein simulierter Server erlaubt es, den
+     kompletten Ablauf inklusive Konflikten durchzuspielen.
+   - "live": gegen eine echte Nextcloud ab School Planner 1.3.0. Die Anfragen
+     laufen im Electron-Hauptprozess (kein CORS), das App-Passwort bleibt dort.
+
+   Feldnamen folgen bewusst der Schnittstelle: lessonDate, lessonSlot,
+   published, isCurrent. Einen Stundenstatus gibt es serverseitig nicht – er
+   wird aus den Elementen abgeleitet.
    ========================================================================= */
 
-var KEY = "spo.proto.v1";
-/* Skalen und Status exakt wie in der Nextcloud-App (ParticipationService::SCALES
-   und die scaleOptions/statusOptions in deren App.vue). Andere Werte wuerden
-   beim spaeteren Abgleich verworfen. */
+var KEY = "spo.proto.v2";
+var API_VERSION = 1;
+
 var GRADES = {
-  "": [],                                       // "Keine Note" – keine Bewertung
+  "": [],
   "scale3": ["+", "+/-", "-"],
   "scale5": ["++", "+", "+/-", "-", "--"],
   "note":   ["1", "2", "3", "4", "5", "6"]
 };
 var SCALE_LABEL = { "":"Keine Note", "scale3":"Skala 1–3", "scale5":"Skala 1–5", "note":"Note 1–6" };
 var STATUS = [
-  { id:"present",   label:"Anwesend",     short:"Da",     cls:"" },
-  { id:"excused",   label:"Entschuldigt", short:"Entsch.",cls:"is-excused" },
+  { id:"present",   label:"Anwesend",       short:"Da",        cls:"" },
+  { id:"excused",   label:"Entschuldigt",   short:"Entsch.",   cls:"is-excused" },
   { id:"unexcused", label:"Unentschuldigt", short:"Unentsch.", cls:"is-unexcused" }
 ];
 function gradesFor(scale){ return GRADES[scale] || []; }
@@ -325,14 +332,9 @@ function gradesFor(scale){ return GRADES[scale] || []; }
 function now(){ return new Date().toISOString(); }
 function iso(d){ return d.toISOString().slice(0,10); }
 function addDays(d,n){ var x=new Date(d.getTime()); x.setDate(x.getDate()+n); return x; }
-function deLong(dstr){
-  var d=new Date(dstr+"T12:00:00");
-  return d.toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"long"});
-}
-function deShort(dstr){
-  var d=new Date(dstr+"T12:00:00");
-  return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit"});
-}
+function deLong(s){ return new Date(s+"T12:00:00").toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"long"}); }
+function deShort(s){ return new Date(s+"T12:00:00").toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit"}); }
+function monthLabel(s){ return new Date(s+"T12:00:00").toLocaleDateString("de-DE",{month:"long",year:"numeric"}); }
 function relTime(t){
   if(!t) return "noch nie";
   var diff=(Date.now()-new Date(t).getTime())/1000;
@@ -342,6 +344,15 @@ function relTime(t){
   return "am "+new Date(t).toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+function pkey(lessonId, studentId){ return lessonId+":"+studentId; }
+function newer(a,b){
+  if(!a || !b) return true;
+  var ta=Date.parse(a), tb=Date.parse(b);
+  if(isNaN(ta) || isNaN(tb)) return true;
+  return ta > tb;
+}
+
 /* Sehr kleiner Markdown-Renderer: Codebloecke, fett, Inline-Code, Absaetze. */
 function fmt(text){
   if(!text) return "";
@@ -362,39 +373,33 @@ function fmt(text){
   }
   return out;
 }
-function clone(o){ return JSON.parse(JSON.stringify(o)); }
-function pkey(lessonId, studentId){ return lessonId+":"+studentId; }
 
 /* ---------- Demodaten ---------- */
 function seed(){
   var t = new Date();
-  /* Bewusst alle vier Skalen im Datenbestand, damit sich jede Einstellung testen laesst. */
   var courses = [
-    { id:1, name:"Informatik 9b",  scale:"scale5" },
-    { id:2, name:"Informatik 7a",  scale:"scale3" },
-    { id:3, name:"Info-LK Q1",     scale:"note" },
-    { id:4, name:"Vertretung 8c",  scale:"" }
+    { id:1, name:"Informatik 9b",  participationScale:"scale5" },
+    { id:2, name:"Informatik 7a",  participationScale:"scale3" },
+    { id:3, name:"Info-LK Q1",     participationScale:"note" },
+    { id:4, name:"Vertretung 8c",  participationScale:"" }
   ];
   var namesA = ["Amelie Berg","Ben Kowalski","Clara Voss","David Ünal","Emma Reinhardt","Finn Brenner","Greta Lindqvist","Hakan Demir","Ida Sommer","Jonas Weiß","Karla Mendes","Leon Hartmann"];
   var namesB = ["Alina Krause","Bela Nowak","Cem Yildiz","Dana Fischer","Elias Roth","Frida Baumann","Gustav Pohl","Hanna Neumann","Ilyas Aydin","Jette Kramer"];
   var namesC = ["Aaron Steinbach","Bianca Lorenz","Cedric Wagner","Delia Mahmoud","Emil Konrad","Fenja Ostermann"];
   var namesD = ["Jara Petersen","Kilian Beck","Lotte Ahrens","Milo Farkas","Nina Sander","Oskar Timm","Pia Wendt","Ruben Haas"];
   var students=[], sid=1;
-  [ [1,namesA],[2,namesB],[3,namesC],[4,namesD] ].forEach(function(pair){
-    pair[1].forEach(function(n){ students.push({ id:sid++, courseId:pair[0], name:n }); });
+  [[1,namesA],[2,namesB],[3,namesC],[4,namesD]].forEach(function(p){
+    p[1].forEach(function(n){ students.push({ id:sid++, courseId:p[0], name:n, note:"" }); });
   });
 
   var lessons=[], items=[], lid=1, iid=1;
-  function lesson(courseId, date, slot, title, goal, steps){
-    lessons.push({
-      id:lid, courseId:courseId, date:date, slot:slot, title:title, goal:goal,
-      status:"planned", currentItemId:null, updatedAt:now(), syncedAt:now(), dirty:false
-    });
+  function lesson(courseId, lessonDate, lessonSlot, title, goal, steps){
+    lessons.push({ id:lid, courseId:courseId, lessonDate:lessonDate, lessonSlot:lessonSlot,
+                   title:title, goal:goal, description:"", updatedAt:now() });
     steps.forEach(function(s,i){
-      items.push({
-        id:iid++, lessonId:lid, sortOrder:i, title:s[0], description:s[1], teacherNote:s[2]||"",
-        published:false, updatedAt:now(), syncedAt:now(), dirty:false
-      });
+      items.push({ id:iid++, lessonId:lid, sortOrder:i, title:s[0], description:s[1],
+                   teacherNote:s[2]||"", published:false, isCurrent:false,
+                   updatedAt:now(), syncedAt:now(), dirty:false });
     });
     lid++;
   }
@@ -439,7 +444,7 @@ function seed(){
     ["Input: Listen", "Zugriff über den Index, beginnend bei 0.", ""]
   ]);
 
-  return { courses:courses, students:students, lessons:lessons, items:items, participation:{} };
+  return { courses:courses, students:students, lessons:lessons, items:items };
 }
 
 /* ---------- Zustand ---------- */
@@ -447,50 +452,19 @@ var state = null;
 var ui = {
   view:"today", lessonId:null, tab:"flow", sheet:null, toast:null, toastTimer:null,
   fullscreen:false, courseId:null, courseFilter:"upcoming", courseSearch:"", searchFocus:false,
-  update:null
-};
-
-/* ---------- Erscheinungsbild: System / Hell / Dunkel ---------- */
-var THEME_KEY = "spo.theme";
-var themePref = "system";
-function systemDark(){
-  return !(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
-}
-function applyTheme(){
-  var resolved = themePref === "system" ? (systemDark() ? "dark" : "light") : themePref;
-  document.documentElement.setAttribute("data-theme", resolved);
-}
-function initTheme(){
-  try{ themePref = localStorage.getItem(THEME_KEY) || "system"; }catch(e){ themePref = "system"; }
-  applyTheme();
-  if(window.matchMedia){
-    var mq = window.matchMedia("(prefers-color-scheme: light)");
-    var onChange = function(){ if(themePref==="system") applyTheme(); };
-    if(mq.addEventListener) mq.addEventListener("change", onChange);
-    else if(mq.addListener) mq.addListener(onChange);
-  }
-}
-function cycleTheme(){
-  themePref = themePref==="system" ? "light" : themePref==="light" ? "dark" : "system";
-  try{ localStorage.setItem(THEME_KEY, themePref); }catch(e){}
-  applyTheme();
-  toast({ system:"Erscheinungsbild folgt dem System", light:"Helles Erscheinungsbild", dark:"Dunkles Erscheinungsbild" }[themePref]);
-}
-var THEME_ICON = {
-  system: '<circle cx="12" cy="12" r="8"/><path d="M12 4v16" /><path d="M12 4a8 8 0 0 1 0 16" fill="currentColor" stroke="none"/>',
-  light:  '<circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
-  dark:   '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>'
+  update:null, busy:false, connDraft:null
 };
 
 function freshState(){
   var s = seed();
   return {
     lastSync: null,
-    local: { lessons: clone(s.lessons), items: clone(s.items), participation:{} },
+    mode: "demo",
+    conn: { baseUrl:"", user:"", connected:false },
+    meta: { courses: clone(s.courses), students: clone(s.students) },
+    local:  { lessons: clone(s.lessons), items: clone(s.items), participation:{} },
     server: { lessons: clone(s.lessons), items: clone(s.items), participation:{} },
-    meta: { courses:s.courses, students:s.students },
-    conflicts: [],
-    log: []
+    conflicts: []
   };
 }
 function load(){
@@ -500,25 +474,71 @@ function load(){
   }catch(e){}
   return freshState();
 }
-function save(){
-  try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){}
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
+
+/* ---------- Erscheinungsbild ---------- */
+var THEME_KEY = "spo.theme";
+var themePref = "system";
+function systemDark(){ return !(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches); }
+function applyTheme(){
+  document.documentElement.setAttribute("data-theme",
+    themePref==="system" ? (systemDark()?"dark":"light") : themePref);
 }
+function initTheme(){
+  try{ themePref = localStorage.getItem(THEME_KEY) || "system"; }catch(e){ themePref="system"; }
+  applyTheme();
+  if(window.matchMedia){
+    var mq = window.matchMedia("(prefers-color-scheme: light)");
+    var on = function(){ if(themePref==="system") applyTheme(); };
+    if(mq.addEventListener) mq.addEventListener("change", on); else if(mq.addListener) mq.addListener(on);
+  }
+}
+function cycleTheme(){
+  themePref = themePref==="system" ? "light" : themePref==="light" ? "dark" : "system";
+  try{ localStorage.setItem(THEME_KEY, themePref); }catch(e){}
+  applyTheme();
+  toast({system:"Erscheinungsbild folgt dem System",light:"Helles Erscheinungsbild",dark:"Dunkles Erscheinungsbild"}[themePref]);
+}
+var THEME_ICON = {
+  system: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16" fill="currentColor" stroke="none"/>',
+  light:  '<circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
+  dark:   '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>'
+};
 
 /* ---------- Zugriff ---------- */
 function course(id){ return state.meta.courses.filter(function(c){ return c.id===id; })[0]; }
 function lesson(id){ return state.local.lessons.filter(function(l){ return l.id===id; })[0]; }
 function itemsOf(id){
   return state.local.items.filter(function(i){ return i.lessonId===id; })
-    .sort(function(a,b){ return a.sortOrder-b.sortOrder; });
+    .sort(function(a,b){ return a.sortOrder-b.sortOrder || a.id-b.id; });
 }
 function studentsOf(courseId){ return state.meta.students.filter(function(s){ return s.courseId===courseId; }); }
 function part(lessonId, studentId){ return state.local.participation[pkey(lessonId,studentId)] || null; }
+function scaleOf(courseId){ var c=course(courseId); return c ? (c.participationScale||"") : ""; }
 
-function touchLesson(l){ l.updatedAt = now(); l.dirty = true; save(); }
+/* Der Stundenstatus ist KEIN gespeichertes Feld – die Nextcloud kennt ihn
+   nicht. Er ergibt sich aus den Elementen, damit beide Seiten dasselbe
+   sehen, ohne dass etwas synchronisiert werden muss. */
+function lessonStatus(l){
+  var its = itemsOf(l.id);
+  if(!its.length) return "planned";
+  var current = its.filter(function(i){ return i.isCurrent; }).length;
+  var published = its.filter(function(i){ return i.published; }).length;
+  if(current > 0) return "running";
+  if(published >= its.length) return "done";
+  if(published > 0) return "running";
+  return "planned";
+}
+function currentItem(lessonId){
+  var its = itemsOf(lessonId);
+  return its.filter(function(i){ return i.isCurrent; })[0] || null;
+}
+
 function touchItem(i){ i.updatedAt = now(); i.dirty = true; save(); }
 function setPart(lessonId, studentId, patch){
   var k = pkey(lessonId, studentId);
-  var cur = state.local.participation[k] || { lessonId:lessonId, studentId:studentId, status:"", grade:"", note:"", syncedAt:null };
+  var cur = state.local.participation[k]
+    || { lessonId:lessonId, studentId:studentId, status:"", grade:"", note:"", syncedAt:null };
   for(var p in patch){ cur[p]=patch[p]; }
   cur.updatedAt = now();
   cur.dirty = true;
@@ -526,227 +546,512 @@ function setPart(lessonId, studentId, patch){
   save();
 }
 
-/* ---------- Dirty-Erkennung ----------
-   Bewusst ein Flag und kein Zeitstempelvergleich: Geht die Uhr des Servers vor,
-   wuerden lokale Aenderungen sonst als "aelter" gelten und still nie uebertragen.
-   Zeitstempel dienen nur der Konflikterkennung – und dort werden ausschliesslich
-   Serverzeiten miteinander verglichen (syncedAt ist die Serverzeit des letzten
-   Abgleichs), also ohne jeden Bezug zur Geraeteuhr. */
-function isDirty(rec){ return !!rec.dirty; }
+/* ---------- Offene Aenderungen ----------
+   Bewusst ein Flag und kein Zeitstempelvergleich: Geht die Uhr des Servers
+   vor, wuerden lokale Aenderungen sonst als "aelter" gelten und still nie
+   uebertragen. Zeitstempel dienen ausschliesslich der Konflikterkennung. */
+function isDirty(rec){ return !!(rec && rec.dirty); }
+function dirtyItems(){ return state.local.items.filter(isDirty); }
+function dirtyParticipation(){
+  return Object.keys(state.local.participation)
+    .map(function(k){ return state.local.participation[k]; })
+    .filter(isDirty);
+}
 function pendingChanges(){
   var out=[];
-  state.local.lessons.forEach(function(l){ if(isDirty(l)) out.push({type:"lesson",id:l.id,label:"Stundenstatus – "+l.title}); });
-  state.local.items.forEach(function(i){ if(isDirty(i)) out.push({type:"item",id:i.id,label:"Freigabe – "+i.title}); });
-  Object.keys(state.local.participation).forEach(function(k){
-    var p=state.local.participation[k];
-    if(isDirty(p)){
-      var st=state.meta.students.filter(function(s){ return s.id===p.studentId; })[0];
-      out.push({type:"participation",id:k,label:"Mitarbeit – "+(st?st.name:"?")});
-    }
+  dirtyItems().forEach(function(i){ out.push({type:"item", label:"Ablauf – "+i.title}); });
+  dirtyParticipation().forEach(function(p){
+    var st = state.meta.students.filter(function(s){ return s.id===p.studentId; })[0];
+    out.push({type:"participation", label:"Mitarbeit – "+(st?st.name:"?")});
   });
   return out;
 }
 
-/* ---------- Sync ---------- */
-function pull(){
-  var added=0, updated=0, conflicts=0;
-  function mergeList(listName, stateFields){
-    state.server[listName].forEach(function(srv){
-      var loc = state.local[listName].filter(function(x){ return x.id===srv.id; })[0];
-      if(!loc){ state.local[listName].push(clone(srv)); added++; return; }
-      var locDirty = isDirty(loc);
-      var srvNewer = loc.syncedAt && srv.updatedAt > loc.syncedAt;
-      if(locDirty && srvNewer){
-        registerConflict(listName, loc, srv, stateFields); conflicts++; return;
-      }
-      if(srvNewer || !locDirty){
-        var changed=false;
-        for(var f in srv){
-          if(f==="syncedAt" || f==="dirty") continue;
-          if(JSON.stringify(loc[f])!==JSON.stringify(srv[f])){ loc[f]=clone(srv[f]); changed=true; }
-        }
-        loc.syncedAt = srv.updatedAt;
-        loc.dirty = false;
-        if(changed) updated++;
-      }
-    });
-  }
-  mergeList("lessons", ["status","currentItemId"]);
-  mergeList("items", ["published"]);
-
-  Object.keys(state.server.participation).forEach(function(k){
-    var srv = state.server.participation[k];
-    var loc = state.local.participation[k];
-    if(!loc){ state.local.participation[k]=clone(srv); added++; return; }
-    var locDirty = isDirty(loc);
-    var srvNewer = loc.syncedAt && srv.updatedAt > loc.syncedAt;
-    if(locDirty && srvNewer){ registerConflict("participation", loc, srv, ["status","grade","note"]); conflicts++; return; }
-    if(srvNewer || !locDirty){
-      loc.status=srv.status; loc.grade=srv.grade; loc.note=srv.note;
-      loc.updatedAt=srv.updatedAt; loc.syncedAt=srv.updatedAt; loc.dirty=false; updated++;
-    }
-  });
-
-  state.lastSync = now();
-  save();
-  return { added:added, updated:updated, conflicts:conflicts };
+/* ---------- Konflikte ---------- */
+function addConflict(kind, id, label, mine, theirs){
+  var cid = kind+":"+id;
+  if(state.conflicts.some(function(c){ return c.id===cid; })) return;
+  state.conflicts.push({ id:cid, kind:kind, label:label, mine:mine, theirs:theirs });
 }
-
-function push(){
-  var sent=0, conflicts=0;
-  function pushList(listName, fields){
-    state.local[listName].forEach(function(loc){
-      if(!isDirty(loc)) return;
-      var srv = state.server[listName].filter(function(x){ return x.id===loc.id; })[0];
-      if(!srv) return;
-      if(loc.syncedAt && srv.updatedAt > loc.syncedAt){
-        registerConflict(listName, loc, srv, fields); conflicts++; return;
-      }
-      fields.forEach(function(f){ srv[f]=clone(loc[f]); });
-      srv.updatedAt = loc.updatedAt;
-      loc.syncedAt = loc.updatedAt;
-      loc.dirty = false;
-      sent++;
-    });
-  }
-  pushList("lessons", ["status","currentItemId"]);
-  pushList("items", ["published"]);
-
-  Object.keys(state.local.participation).forEach(function(k){
-    var loc = state.local.participation[k];
-    if(!isDirty(loc)) return;
-    var srv = state.server.participation[k];
-    if(srv && loc.syncedAt && srv.updatedAt > loc.syncedAt){
-      registerConflict("participation", loc, srv, ["status","grade","note"]); conflicts++; return;
-    }
-    state.server.participation[k] = { lessonId:loc.lessonId, studentId:loc.studentId, status:loc.status, grade:loc.grade, note:loc.note, updatedAt:loc.updatedAt };
-    loc.syncedAt = loc.updatedAt;
-    loc.dirty = false;
-    sent++;
-  });
-
-  state.lastSync = now();
-  save();
-  return { sent:sent, conflicts:conflicts };
+function describeItem(i){
+  return (i.published?"freigegeben":"nicht freigegeben") + (i.isCurrent?", aktueller Schritt":"");
 }
-
-function registerConflict(entity, loc, srv, fields){
-  var id = entity+":"+(loc.id!=null?loc.id:pkey(loc.lessonId,loc.studentId));
-  if(state.conflicts.some(function(c){ return c.id===id; })) return;
-  state.conflicts.push({
-    id:id, entity:entity, fields:fields,
-    label:conflictLabel(entity, loc),
-    mine:describe(entity, loc, fields), theirs:describe(entity, srv, fields),
-    mineAt:loc.updatedAt, theirsAt:srv.updatedAt
-  });
-}
-function conflictLabel(entity, rec){
-  if(entity==="participation"){
-    var st=state.meta.students.filter(function(s){ return s.id===rec.studentId; })[0];
-    var l=lesson(rec.lessonId);
-    return (st?st.name:"?")+" · "+(l?l.title:"Stunde");
-  }
-  if(entity==="lessons"){ return "Stundenstatus · "+rec.title; }
-  return "Freigabe · "+rec.title;
-}
-function describe(entity, rec, fields){
-  if(entity==="participation"){
-    var s=STATUS.filter(function(x){ return x.id===rec.status; })[0];
-    return (s?s.label:"–")+(rec.grade?" · Note "+rec.grade:"")+(rec.note?" · Notiz":"");
-  }
-  if(entity==="lessons"){
-    return { planned:"geplant", running:"läuft", done:"abgeschlossen" }[rec.status] || rec.status;
-  }
-  return rec.published ? "freigegeben" : "nicht freigegeben";
+function describePart(p){
+  var s = STATUS.filter(function(x){ return x.id===p.status; })[0];
+  return (s?s.label:"–") + (p.grade?" · Note "+p.grade:"") + (p.note?" · Notiz":"");
 }
 function resolveConflict(cid, take){
   var c = state.conflicts.filter(function(x){ return x.id===cid; })[0];
   if(!c) return;
-  var parts = c.id.split(":");
-  if(c.entity==="participation"){
-    var k = parts[1]+":"+parts[2];
-    var loc = state.local.participation[k], srv = state.server.participation[k];
-    if(take==="mine"){ loc.updatedAt=now(); loc.syncedAt=srv.updatedAt; loc.dirty=true; }
-    else { c.fields.forEach(function(f){ loc[f]=srv[f]; }); loc.updatedAt=srv.updatedAt; loc.syncedAt=srv.updatedAt; loc.dirty=false; }
-  } else {
-    var id = parseInt(parts[1],10);
-    var l = state.local[c.entity].filter(function(x){ return x.id===id; })[0];
-    var s = state.server[c.entity].filter(function(x){ return x.id===id; })[0];
-    if(take==="mine"){ l.updatedAt=now(); l.syncedAt=s.updatedAt; l.dirty=true; }
-    else { c.fields.forEach(function(f){ l[f]=s[f]; }); l.updatedAt=s.updatedAt; l.syncedAt=s.updatedAt; l.dirty=false; }
+  var rest = c.id.substring(c.kind.length+1);
+
+  if(c.kind==="item"){
+    var it = state.local.items.filter(function(x){ return x.id===parseInt(rest,10); })[0];
+    if(it){
+      if(take==="mine"){ it.updatedAt = now(); it.syncedAt = c.serverUpdatedAt || it.syncedAt; it.dirty = true; }
+      else { it.published=c.serverData.published; it.isCurrent=c.serverData.isCurrent;
+             it.updatedAt=c.serverData.updatedAt; it.syncedAt=c.serverData.updatedAt; it.dirty=false; }
+    }
+  } else if(c.kind==="participation"){
+    var p = state.local.participation[rest];
+    if(p){
+      if(take==="mine"){ p.updatedAt = now(); p.syncedAt = c.serverUpdatedAt || p.syncedAt; p.dirty = true; }
+      else { p.status=c.serverData.status; p.grade=c.serverData.grade; p.note=c.serverData.note;
+             p.updatedAt=c.serverData.updatedAt; p.syncedAt=c.serverData.updatedAt; p.dirty=false; }
+    }
+  } else if(c.kind==="orphan"){
+    if(take==="theirs"){                       // verwaisten Eintrag verwerfen
+      if(state.local.participation[rest]) delete state.local.participation[rest];
+    }
   }
   state.conflicts = state.conflicts.filter(function(x){ return x.id!==cid; });
   save(); render();
 }
 
-/* Simuliert eine Aenderung "am Rechner in der Nextcloud". */
+/* =========================================================================
+   Abgleich
+   ========================================================================= */
+
+/* ----- Demo: simulierte Nextcloud ----- */
+function pullDemo(){
+  var added=0, updated=0, conflicts=0;
+
+  state.server.items.forEach(function(srv){
+    var loc = state.local.items.filter(function(x){ return x.id===srv.id; })[0];
+    if(!loc){ state.local.items.push(clone(srv)); added++; return; }
+    ["title","description","teacherNote","sortOrder"].forEach(function(f){ loc[f]=srv[f]; });
+    var srvNewer = loc.syncedAt && newer(srv.updatedAt, loc.syncedAt);
+    if(isDirty(loc) && srvNewer){
+      addConflict("item", loc.id, "Ablauf · "+loc.title, describeItem(loc), describeItem(srv));
+      var c = state.conflicts[state.conflicts.length-1];
+      c.serverData = { published:srv.published, isCurrent:srv.isCurrent, updatedAt:srv.updatedAt };
+      c.serverUpdatedAt = srv.updatedAt;
+      conflicts++; return;
+    }
+    if(!isDirty(loc)){
+      loc.published=srv.published; loc.isCurrent=srv.isCurrent;
+      loc.updatedAt=srv.updatedAt; loc.syncedAt=srv.updatedAt; loc.dirty=false; updated++;
+    }
+  });
+
+  Object.keys(state.server.participation).forEach(function(k){
+    var srv = state.server.participation[k], loc = state.local.participation[k];
+    if(!loc){ state.local.participation[k]=clone(srv); state.local.participation[k].syncedAt=srv.updatedAt; added++; return; }
+    var srvNewer = loc.syncedAt && newer(srv.updatedAt, loc.syncedAt);
+    if(isDirty(loc) && srvNewer){
+      addConflict("participation", k, conflictName(loc), describePart(loc), describePart(srv));
+      var c2 = state.conflicts[state.conflicts.length-1];
+      c2.serverData = { status:srv.status, grade:srv.grade, note:srv.note, updatedAt:srv.updatedAt };
+      c2.serverUpdatedAt = srv.updatedAt;
+      conflicts++; return;
+    }
+    if(!isDirty(loc)){
+      loc.status=srv.status; loc.grade=srv.grade; loc.note=srv.note;
+      loc.updatedAt=srv.updatedAt; loc.syncedAt=srv.updatedAt; loc.dirty=false; updated++;
+    }
+  });
+
+  state.lastSync = now(); save();
+  return { added:added, updated:updated, conflicts:conflicts };
+}
+
+function pushDemo(){
+  var sent=0, conflicts=0;
+
+  dirtyItems().forEach(function(loc){
+    var srv = state.server.items.filter(function(x){ return x.id===loc.id; })[0];
+    if(!srv) return;
+    if(loc.syncedAt && newer(srv.updatedAt, loc.syncedAt)){
+      addConflict("item", loc.id, "Ablauf · "+loc.title, describeItem(loc), describeItem(srv));
+      var c = state.conflicts[state.conflicts.length-1];
+      c.serverData = { published:srv.published, isCurrent:srv.isCurrent, updatedAt:srv.updatedAt };
+      c.serverUpdatedAt = srv.updatedAt;
+      conflicts++; return;
+    }
+    srv.published=loc.published; srv.isCurrent=loc.isCurrent; srv.updatedAt=loc.updatedAt;
+    loc.syncedAt=loc.updatedAt; loc.dirty=false; sent++;
+  });
+
+  dirtyParticipation().forEach(function(loc){
+    var k = pkey(loc.lessonId, loc.studentId);
+    var srv = state.server.participation[k];
+    if(srv && loc.syncedAt && newer(srv.updatedAt, loc.syncedAt)){
+      addConflict("participation", k, conflictName(loc), describePart(loc), describePart(srv));
+      var c2 = state.conflicts[state.conflicts.length-1];
+      c2.serverData = { status:srv.status, grade:srv.grade, note:srv.note, updatedAt:srv.updatedAt };
+      c2.serverUpdatedAt = srv.updatedAt;
+      conflicts++; return;
+    }
+    state.server.participation[k] = { lessonId:loc.lessonId, studentId:loc.studentId,
+      status:loc.status, grade:loc.grade, note:loc.note, updatedAt:loc.updatedAt };
+    loc.syncedAt=loc.updatedAt; loc.dirty=false; sent++;
+  });
+
+  state.lastSync = now(); save();
+  return { sent:sent, conflicts:conflicts };
+}
+
+function conflictName(p){
+  var st = state.meta.students.filter(function(s){ return s.id===p.studentId; })[0];
+  var l = lesson(p.lessonId);
+  return (st?st.name:"?") + " · " + (l?l.title:"Stunde "+p.lessonId);
+}
+
 function simulateServerEdit(){
-  var todays = state.server.lessons.filter(function(l){ return l.date===iso(new Date()); });
+  var todays = state.server.lessons.filter(function(l){ return l.lessonDate===iso(new Date()); });
   var target = todays[0] || state.server.lessons[0];
   if(!target) return "Keine Stunde vorhanden.";
-  var studs = studentsOf(target.courseId);
-  var st = studs[0];
-  var k = pkey(target.id, st.id);
-  state.server.participation[k] = { lessonId:target.id, studentId:st.id, status:"excused", grade:"", note:"Krankmeldung im Sekretariat", updatedAt:now() };
+  var st = studentsOf(target.courseId)[0];
+  if(st){
+    state.server.participation[pkey(target.id, st.id)] = {
+      lessonId:target.id, studentId:st.id, status:"excused", grade:"",
+      note:"Krankmeldung im Sekretariat", updatedAt:now()
+    };
+  }
   var it = state.server.items.filter(function(i){ return i.lessonId===target.id; })[0];
   if(it){ it.published = !it.published; it.updatedAt = now(); }
   save();
-  return "In der Nextcloud wurden „"+st.name+"“ und ein Element von „"+target.title+"“ geändert.";
+  return "In der Nextcloud wurden „"+(st?st.name:"ein Eintrag")+"“ und ein Element von „"+target.title+"“ geändert.";
 }
 
-/* ---------- Aktionen ---------- */
+/* ----- Live: echte Nextcloud ----- */
+function apiAvailable(){ return !!(window.spo && window.spo.api); }
+
+function api(method, path, payload){
+  if(!apiAvailable()) return Promise.reject(new Error("Die Verbindung gibt es nur in der Desktop-App."));
+  return window.spo.api({
+    method: method, path: path,
+    query: method==="GET" ? (payload||{}) : null,
+    body:  method==="POST" ? (payload||{}) : null
+  }).then(function(r){
+    if(!r || !r.ok) throw new Error((r && r.error) || "Unbekannter Fehler");
+    return r.data;
+  });
+}
+
+function pullLive(){
+  return api("GET", "/sync", {}).then(function(data){
+    if(!data || data.apiVersion !== API_VERSION){
+      throw new Error("Die Nextcloud-App spricht eine andere Fassung der Schnittstelle ("
+        + (data && data.apiVersion) + " statt " + API_VERSION + ").");
+    }
+
+    var courses=[], students=[], lessons=[], serverItems=[], added=0, updated=0, conflicts=0;
+
+    (data.courses||[]).forEach(function(c){
+      courses.push({ id:c.id, name:c.name, participationScale:c.participationScale||"" });
+      (c.students||[]).forEach(function(s){
+        students.push({ id:s.id, courseId:c.id, name:s.name, note:s.note||"" });
+      });
+      (c.lessons||[]).forEach(function(l){
+        lessons.push({ id:l.id, courseId:c.id, lessonDate:l.lessonDate, lessonSlot:l.lessonSlot,
+                       title:l.title, goal:l.goal||"", description:l.description||"", updatedAt:l.updatedAt||"" });
+        (l.items||[]).forEach(function(i){ i.lessonId = l.id; serverItems.push(i); });
+      });
+    });
+
+    state.meta.courses = courses;
+    state.meta.students = students;
+    state.local.lessons = lessons;
+
+    /* Elemente zusammenfuehren: Inhalte kommen immer vom Server, die
+       Zustaende nur, wenn lokal nichts Offenes vorliegt. */
+    var merged = [];
+    serverItems.forEach(function(srv){
+      var loc = state.local.items.filter(function(x){ return x.id===srv.id; })[0];
+      if(!loc){
+        merged.push({ id:srv.id, lessonId:srv.lessonId, sortOrder:srv.sortOrder||0,
+          title:srv.title, description:srv.description||"", teacherNote:srv.teacherNote||"",
+          published:!!srv.published, isCurrent:!!srv.isCurrent,
+          updatedAt:srv.updatedAt||"", syncedAt:srv.updatedAt||"", dirty:false });
+        added++; return;
+      }
+      loc.lessonId=srv.lessonId; loc.sortOrder=srv.sortOrder||0; loc.title=srv.title;
+      loc.description=srv.description||""; loc.teacherNote=srv.teacherNote||"";
+
+      var srvNewer = loc.syncedAt && newer(srv.updatedAt, loc.syncedAt);
+      if(isDirty(loc) && srvNewer){
+        addConflict("item", loc.id, "Ablauf · "+loc.title, describeItem(loc), describeItem(srv));
+        var c = state.conflicts[state.conflicts.length-1];
+        c.serverData = { published:!!srv.published, isCurrent:!!srv.isCurrent, updatedAt:srv.updatedAt };
+        c.serverUpdatedAt = srv.updatedAt;
+        conflicts++;
+      } else if(!isDirty(loc)){
+        loc.published=!!srv.published; loc.isCurrent=!!srv.isCurrent;
+        loc.updatedAt=srv.updatedAt||""; loc.syncedAt=srv.updatedAt||""; loc.dirty=false; updated++;
+      }
+      merged.push(loc);
+    });
+    /* Lokal offene Elemente, die es serverseitig nicht mehr gibt, nicht
+       stillschweigend wegwerfen. */
+    state.local.items.filter(isDirty).forEach(function(loc){
+      if(!merged.some(function(m){ return m.id===loc.id; })) merged.push(loc);
+    });
+    state.local.items = merged;
+
+    var byKey = {};
+    (data.participation||[]).forEach(function(srv){
+      var k = pkey(srv.lessonId, srv.studentId);
+      byKey[k] = srv;
+      var loc = state.local.participation[k];
+      if(!loc){
+        state.local.participation[k] = { lessonId:srv.lessonId, studentId:srv.studentId,
+          status:srv.status||"", grade:srv.grade||"", note:srv.note||"",
+          updatedAt:srv.updatedAt||"", syncedAt:srv.updatedAt||"", dirty:false };
+        added++; return;
+      }
+      var pNewer = loc.syncedAt && newer(srv.updatedAt, loc.syncedAt);
+      if(isDirty(loc) && pNewer){
+        addConflict("participation", k, conflictName(loc), describePart(loc), describePart(srv));
+        var c2 = state.conflicts[state.conflicts.length-1];
+        c2.serverData = { status:srv.status||"", grade:srv.grade||"", note:srv.note||"", updatedAt:srv.updatedAt };
+        c2.serverUpdatedAt = srv.updatedAt;
+        conflicts++;
+      } else if(!isDirty(loc)){
+        loc.status=srv.status||""; loc.grade=srv.grade||""; loc.note=srv.note||"";
+        loc.updatedAt=srv.updatedAt||""; loc.syncedAt=srv.updatedAt||""; loc.dirty=false; updated++;
+      }
+    });
+    Object.keys(state.local.participation).forEach(function(k){
+      if(!byKey[k] && !isDirty(state.local.participation[k])) delete state.local.participation[k];
+    });
+
+    state.lastSync = now(); state.mode = "live"; save();
+    return { added:added, updated:updated, conflicts:conflicts };
+  });
+}
+
+function pushLive(){
+  var items = dirtyItems().map(function(i){
+    return { id:i.id, published:!!i.published, isCurrent:!!i.isCurrent, updatedAt:i.updatedAt };
+  });
+  var parts = dirtyParticipation().map(function(p){
+    return { lessonId:p.lessonId, studentId:p.studentId, status:p.status||"",
+             grade:p.grade||"", note:p.note||"", updatedAt:p.updatedAt };
+  });
+  if(!items.length && !parts.length) return Promise.resolve({ sent:0, conflicts:0 });
+
+  return api("POST", "/state", { items:items, participation:parts }).then(function(res){
+    var sent=0, conflicts=0;
+
+    (res.items||[]).forEach(function(r){
+      var loc = state.local.items.filter(function(x){ return x.id===r.id; })[0];
+      if(!loc) return;
+      if(r.result==="applied"){ loc.syncedAt=r.updatedAt||loc.updatedAt; loc.dirty=false; sent++; }
+      else if(r.result==="skipped" && r.server){
+        addConflict("item", loc.id, "Ablauf · "+loc.title, describeItem(loc), describeItem(r.server));
+        var c = state.conflicts[state.conflicts.length-1];
+        c.serverData = { published:!!r.server.published, isCurrent:!!r.server.isCurrent, updatedAt:r.server.updatedAt };
+        c.serverUpdatedAt = r.server.updatedAt;
+        conflicts++;
+      } else if(r.result==="unknown"){
+        addConflict("orphan", loc.id, "Ablauf · "+loc.title,
+          "Liegt nur auf diesem Gerät", "In der Nextcloud nicht mehr vorhanden");
+        conflicts++;
+      }
+    });
+
+    (res.participation||[]).forEach(function(r){
+      var k = pkey(r.lessonId, r.studentId);
+      var loc = state.local.participation[k];
+      if(!loc) return;
+      if(r.result==="applied"){ loc.syncedAt=r.updatedAt||loc.updatedAt; loc.dirty=false; sent++; }
+      else if(r.result==="skipped" && r.server){
+        addConflict("participation", k, conflictName(loc), describePart(loc), describePart(r.server));
+        var c2 = state.conflicts[state.conflicts.length-1];
+        c2.serverData = { status:r.server.status||"", grade:r.server.grade||"", note:r.server.note||"", updatedAt:r.server.updatedAt };
+        c2.serverUpdatedAt = r.server.updatedAt;
+        conflicts++;
+      } else if(r.result==="unknown"){
+        addConflict("orphan", k, conflictName(loc),
+          "Liegt nur auf diesem Gerät", "Stunde oder Person nicht mehr vorhanden");
+        conflicts++;
+      }
+    });
+
+    state.lastSync = now(); save();
+    return { sent:sent, conflicts:conflicts };
+  });
+}
+
+/* Reihenfolge: erst senden, dann holen. Sonst ueberschreibt ein Abruf
+   eigene Aenderungen, die der Server noch gar nicht kennt. */
+function doSync(){
+  if(ui.busy) return;
+  ui.busy = true; render();
+
+  var live = state.conn.connected && apiAvailable();
+  var run = live
+    ? pushLive().then(function(p){ return pullLive().then(function(q){ return {p:p,q:q}; }); })
+    : Promise.resolve({ p:pushDemo(), q:pullDemo() });
+
+  run.then(function(r){
+    var msg = (r.p.sent||0)+" übertragen, "+((r.q.added||0)+(r.q.updated||0))+" geladen";
+    var conf = (r.p.conflicts||0)+(r.q.conflicts||0);
+    toast(conf ? conf+" Konflikt(e) – bitte entscheiden" : msg);
+  }).catch(function(err){
+    toast(err && err.message ? err.message : "Abgleich fehlgeschlagen");
+  }).then(function(){
+    ui.busy = false; render();
+  });
+}
+
+/* ---------- Verbindung ---------- */
+function loadConnection(){
+  if(!(window.spo && window.spo.creds)) return Promise.resolve();
+  return window.spo.creds.load().then(function(c){
+    if(c && c.baseUrl && c.user && c.hasPassword){
+      state.conn = { baseUrl:c.baseUrl, user:c.user, connected:true };
+      state.mode = "live";
+      save(); render();
+    }
+  }).catch(function(){});
+}
+
+function testConnection(draft){
+  if(!(window.spo && window.spo.creds)){ toast("Nur in der Desktop-App möglich."); return; }
+  ui.busy = true; render();
+
+  window.spo.creds.save(draft)
+    .then(function(){ return api("GET", "/info", {}); })
+    .then(function(info){
+      if(!info || info.apiVersion !== API_VERSION){
+        throw new Error("Diese Nextcloud-App ist zu alt – bitte auf School Planner 1.3.0 aktualisieren.");
+      }
+      state.conn = { baseUrl:draft.baseUrl, user:info.user||draft.user, connected:true };
+      state.mode = "live";
+      ui.connDraft = null;
+      save();
+      toast("Verbunden als "+(info.user||draft.user)+" · "+(info.courses||0)+" Kurse");
+    })
+    .catch(function(err){
+      state.conn.connected = false;
+      toast(err && err.message ? err.message : "Verbindung fehlgeschlagen");
+    })
+    .then(function(){ ui.busy=false; render(); });
+}
+
+function disconnect(){
+  if(window.spo && window.spo.creds) window.spo.creds.clear();
+  state.conn = { baseUrl:state.conn.baseUrl, user:state.conn.user, connected:false };
+  state.mode = "demo";
+  save(); render();
+  toast("Verbindung getrennt. Erfasste Daten bleiben auf diesem Gerät.");
+}
+
+/* =========================================================================
+   Aktionen im Unterricht
+   Geschrieben wird ausschliesslich an den Elementen: published und isCurrent.
+   ========================================================================= */
 function startLesson(id){
-  var l = lesson(id), its = itemsOf(id);
-  l.status = "running";
-  if(!l.currentItemId && its.length) l.currentItemId = its[0].id;
-  touchLesson(l); render();
+  var its = itemsOf(id);
+  if(!its.length) return;
+  its.forEach(function(i){ if(i.isCurrent){ i.isCurrent=false; touchItem(i); } });
+  its[0].isCurrent = true; touchItem(its[0]);
+  render();
 }
 function nextStep(id){
-  var l = lesson(id), its = itemsOf(id);
-  var idx = its.findIndex(function(i){ return i.id===l.currentItemId; });
+  var its = itemsOf(id);
+  var idx = its.findIndex(function(i){ return i.isCurrent; });
+  if(idx < 0){ startLesson(id); return; }
   var cur = its[idx];
-  if(cur && !cur.published){ cur.published = true; touchItem(cur); }
-  if(idx < its.length-1){ l.currentItemId = its[idx+1].id; }
-  else { l.status = "done"; }
-  touchLesson(l); render();
+  cur.isCurrent = false;
+  if(!cur.published) cur.published = true;
+  touchItem(cur);
+  if(idx < its.length-1){ its[idx+1].isCurrent = true; touchItem(its[idx+1]); }
+  render();
 }
 function prevStep(id){
-  var l = lesson(id), its = itemsOf(id);
-  var idx = its.findIndex(function(i){ return i.id===l.currentItemId; });
-  if(idx>0){ l.currentItemId = its[idx-1].id; l.status="running"; touchLesson(l); render(); }
+  var its = itemsOf(id);
+  var idx = its.findIndex(function(i){ return i.isCurrent; });
+  if(idx < 0){ idx = its.length; }            // nach Stundenende zurueckspringen
+  if(idx <= 0) return;
+  if(its[idx]){ its[idx].isCurrent=false; touchItem(its[idx]); }
+  its[idx-1].isCurrent = true; touchItem(its[idx-1]);
+  render();
 }
-function jumpTo(id, itemId){
-  var l = lesson(id); l.currentItemId=itemId; if(l.status==="planned") l.status="running";
-  touchLesson(l); render();
+function jumpTo(lessonId, itemId){
+  itemsOf(lessonId).forEach(function(i){
+    var want = i.id===itemId;
+    if(i.isCurrent !== want){ i.isCurrent = want; touchItem(i); }
+  });
+  render();
 }
 function togglePublish(itemId){
   var it = state.local.items.filter(function(i){ return i.id===itemId; })[0];
+  if(!it) return;
   it.published = !it.published; touchItem(it); render();
 }
-function finishLesson(id){
-  var l = lesson(id); l.status="done"; touchLesson(l); render();
-  toast("Stunde abgeschlossen");
+
+function toast(msg){
+  ui.toast = msg;
+  if(ui.toastTimer) clearTimeout(ui.toastTimer);
+  ui.toastTimer = setTimeout(function(){ ui.toast=null; render(); }, 2800);
+  render();
+}
+
+/* =========================================================================
+   Hinweis auf eine neuere Fassung
+   ========================================================================= */
+var UPDATE_REPO = "holger-dev/schoolplanneroffline";
+var UPDATE_SKIP_KEY = "spo.skipVersion";
+
+function isNewer(remote, local){
+  var a=String(remote).split("."), b=String(local).split(".");
+  for(var i=0;i<Math.max(a.length,b.length);i++){
+    var x=parseInt(a[i]||"0",10)||0, y=parseInt(b[i]||"0",10)||0;
+    if(x!==y) return x>y;
+  }
+  return false;
+}
+function checkForUpdate(){
+  if(!window.spo || !window.spo.version) return;
+  var skipped=""; try{ skipped = localStorage.getItem(UPDATE_SKIP_KEY)||""; }catch(e){}
+  fetch("https://api.github.com/repos/"+UPDATE_REPO+"/releases/latest",
+        { headers:{ "Accept":"application/vnd.github+json" } })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(rel){
+      if(!rel || !rel.tag_name) return;
+      var latest = String(rel.tag_name).replace(/^v/,"");
+      if(latest===skipped || !isNewer(latest, window.spo.version)) return;
+      ui.update = { version:latest, url: rel.html_url || ("https://github.com/"+UPDATE_REPO+"/releases/latest") };
+      render();
+    })
+    .catch(function(){});
+}
+function updateBanner(){
+  if(!ui.update) return "";
+  var mac = window.spo && window.spo.platform==="darwin";
+  var steps = mac
+    ? '<li><b>Herunterladen</b> – die Datei <code>.dmg</code> vom Release.</li>'
+      + '<li><b>App beenden.</b></li>'
+      + '<li>Neue App in den Ordner <b>Programme</b> ziehen und das Ersetzen bestätigen.</li>'
+      + '<li>Beim ersten Start: <b>Rechtsklick auf die App → Öffnen</b>, dann noch einmal Öffnen. '
+      + 'Die Meldung kommt, weil die App nicht signiert ist.</li>'
+    : '<li><b>Herunterladen</b> – Installationsdatei vom Release.</li>'
+      + '<li><b>App beenden.</b></li>'
+      + '<li>Installation ausführen und die vorhandene Fassung ersetzen.</li>';
+  return '<div class="update">'
+    + '<div class="between"><h3>Version '+esc(ui.update.version)+' ist verfügbar</h3>'
+    + '<span class="small muted">installiert: '+esc(window.spo.version)+'</span></div>'
+    + '<p class="small muted" style="margin-top:5px;line-height:1.55">'
+    + 'Deine erfassten Daten bleiben dabei erhalten – sie liegen im Nutzerprofil, nicht in der App. '
+    + 'Vor dem Wechsel am besten einmal abgleichen.</p>'
+    + '<ol>'+steps+'</ol>'
+    + '<div class="controls"><button class="btn btn--primary" data-relopen="1">Zur Download-Seite</button>'
+    + '<button class="btn btn--ghost" data-relskip="1">Diese Version überspringen</button></div></div>';
 }
 
 /* =========================================================================
    Praesentation
-   Zwei Wege, je nach Aufbau im Raum:
-   a) Zweites Fenster (Laptop am Beamer): eigenes Browserfenster, das auf den
-      zweiten Bildschirm gezogen wird. Es wird direkt ueber das DOM aktualisiert
-      und braucht deshalb weder Netz noch BroadcastChannel – funktioniert auch,
-      wenn die Datei nur lokal geoeffnet wurde.
-   b) Vollbild (Tablet gespiegelt): dieselbe Ansicht als Overlay, mit einer
-      schmalen Steuerleiste. Lehrerhinweise erscheinen dort bewusst NICHT –
-      sie waeren sonst an die Wand projiziert.
    ========================================================================= */
 var presentWin = null;
-
 var PRESENT_HTML = '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
   + '<title>Präsentation</title><style>'
-  + ':root{color-scheme:light dark;--pbg:#070d18;--pink:#e8eefb;--pmuted:#c9d7ef;'
-  + '--pacc:#38bdf8;--pline:#26334d;--ppre:rgba(3,7,15,.8);--pprei:#cfe8ff;--pfoot:#93a3c0}'
-  + '@media(prefers-color-scheme:light){:root{--pbg:#ffffff;--pink:#0f1a2c;--pmuted:#26364f;'
-  + '--pacc:#0c7cc0;--pline:#d8e0ec;--ppre:#f2f5fa;--pprei:#123049;--pfoot:#5d6f8c}}'
+  + ':root{color-scheme:light dark;--pbg:#0f1622;--pink:#e9eff8;--pmuted:#c9d7ef;'
+  + '--pacc:#4cb6ef;--pline:#2c3a4e;--ppre:#0c131d;--pprei:#cfe8ff;--pfoot:#94a5bd}'
+  + '@media(prefers-color-scheme:light){:root{--pbg:#ffffff;--pink:#16202f;--pmuted:#26364f;'
+  + '--pacc:#1668a8;--pline:#d4dce8;--ppre:#f1f4f9;--pprei:#14344e;--pfoot:#5a6a83}}'
   + 'html,body{height:100%;margin:0}'
   + 'body{background:var(--pbg);color:var(--pink);'
   + 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;'
@@ -757,7 +1062,7 @@ var PRESENT_HTML = '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
   + '.fmt{margin:.6em 0;line-height:1.6}'
   + 'pre{margin:.7em 0;padding:.8em 1em;border-radius:12px;background:var(--ppre);border:1px solid var(--pline);'
   + 'overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:1.5vw;line-height:1.5;color:var(--pprei)}'
-  + 'code{font-family:ui-monospace,Menlo,Consolas,monospace;background:rgba(56,189,248,.14);color:var(--pacc);padding:.05em .3em;border-radius:5px}'
+  + 'code{font-family:ui-monospace,Menlo,Consolas,monospace;background:rgba(76,182,239,.16);color:var(--pacc);padding:.05em .3em;border-radius:5px}'
   + 'b{color:var(--pink)}'
   + 'footer{padding:2.5vh 0;border-top:1px solid var(--pline);display:flex;align-items:center;gap:1.5vw;font-size:1.1vw;color:var(--pfoot)}'
   + '#pTrack{flex:1;height:6px;border-radius:999px;background:var(--pline);overflow:hidden}'
@@ -771,125 +1076,47 @@ function presenterOpen(){ return !!(presentWin && !presentWin.closed); }
 
 function stageData(l){
   var its = itemsOf(l.id);
-  var idx = its.findIndex(function(i){ return i.id===l.currentItemId; });
-  var cur = idx>=0 ? its[idx] : its[0];
+  var idx = its.findIndex(function(i){ return i.isCurrent; });
+  var status = lessonStatus(l);
+  var cur = idx>=0 ? its[idx] : null;
   return {
-    courseName: course(l.courseId).name, lessonTitle: l.title,
-    item: cur || null, step: (idx<0?0:idx)+1, total: its.length,
+    courseName: (course(l.courseId)||{}).name || "",
+    lessonTitle: l.title,
+    item: cur, step: (idx<0? its.length : idx)+ (idx<0?0:1), total: its.length,
     next: (idx>=0 && idx<its.length-1) ? its[idx+1] : null,
-    done: l.status==="done"
+    done: status==="done", status: status
   };
 }
 
 function openPresenter(){
   var l = lesson(ui.lessonId); if(!l) return;
   presentWin = window.open("", "spoPresent", "width=1280,height=800");
-  if(!presentWin){ toast("Das Fenster wurde blockiert – bitte Pop-ups für diese Seite erlauben."); return; }
-  presentWin.document.open();
-  presentWin.document.write(PRESENT_HTML);
-  presentWin.document.close();
+  if(!presentWin){ toast("Das Fenster wurde blockiert – bitte Pop-ups erlauben."); return; }
+  presentWin.document.open(); presentWin.document.write(PRESENT_HTML); presentWin.document.close();
   updatePresenter();
   toast("Fenster auf den Beamer-Bildschirm ziehen");
 }
-function closePresenter(){
-  if(presenterOpen()) presentWin.close();
-  presentWin = null; render();
-}
+function closePresenter(){ if(presenterOpen()) presentWin.close(); presentWin=null; render(); }
 function updatePresenter(){
   if(!presenterOpen()) return;
-  var l = lesson(ui.lessonId);
-  if(!l){ return; }
+  var l = lesson(ui.lessonId); if(!l) return;
   var s = stageData(l), d = presentWin.document;
-  function set(id, html){ var e=d.getElementById(id); if(e) e.innerHTML = html; }
+  function set(id,html){ var e=d.getElementById(id); if(e) e.innerHTML=html; }
   set("pCourse", esc(s.courseName)+" &middot; "+esc(s.lessonTitle));
-  set("pTitle", s.done ? "Das war die Stunde" : esc(s.item ? s.item.title : ""));
-  set("pBody", s.done ? "" : fmt(s.item ? s.item.description : ""));
-  set("pStep", s.done ? "abgeschlossen" : "Schritt "+s.step+" von "+s.total);
+  set("pTitle", s.item ? esc(s.item.title) : "Das war die Stunde");
+  set("pBody", s.item ? fmt(s.item.description) : "");
+  set("pStep", s.item ? ("Schritt "+s.step+" von "+s.total) : "abgeschlossen");
   var bar = d.getElementById("pBar");
-  if(bar) bar.style.width = (s.done ? 100 : Math.round(s.step/s.total*100))+"%";
+  if(bar) bar.style.width = (s.item ? Math.round(s.step/s.total*100) : 100)+"%";
 }
-
 function enterFullscreen(){
   ui.fullscreen = true;
-  if(document.documentElement.requestFullscreen){
-    document.documentElement.requestFullscreen().catch(function(){});
-  }
+  if(document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(function(){});
   render();
 }
 function exitFullscreen(){
   ui.fullscreen = false;
-  if(document.fullscreenElement && document.exitFullscreen){ document.exitFullscreen().catch(function(){}); }
-  render();
-}
-
-/* =========================================================================
-   Hinweis auf eine neuere Fassung
-   Kein automatisches Update – nur nachsehen, ob im GitHub-Release etwas
-   Neueres liegt, und erklaeren, was zu tun ist. Schlaegt der Abruf fehl
-   (kein Netz, im Unterricht der Normalfall), passiert schlicht nichts.
-   ========================================================================= */
-var UPDATE_REPO = "holger-dev/schoolplanneroffline";
-var UPDATE_SKIP_KEY = "spo.skipVersion";
-
-function isNewer(remote, local){
-  var a = String(remote).split("."), b = String(local).split(".");
-  for(var i=0;i<Math.max(a.length,b.length);i++){
-    var x = parseInt(a[i]||"0",10) || 0, y = parseInt(b[i]||"0",10) || 0;
-    if(x!==y) return x>y;
-  }
-  return false;
-}
-
-function checkForUpdate(){
-  if(!window.spo || !window.spo.version) return;          // nur in der Desktop-App
-  var skipped = "";
-  try{ skipped = localStorage.getItem(UPDATE_SKIP_KEY) || ""; }catch(e){}
-
-  fetch("https://api.github.com/repos/"+UPDATE_REPO+"/releases/latest", {
-    headers: { "Accept": "application/vnd.github+json" }
-  })
-    .then(function(r){ return r.ok ? r.json() : null; })
-    .then(function(rel){
-      if(!rel || !rel.tag_name) return;
-      var latest = String(rel.tag_name).replace(/^v/,"");
-      if(latest===skipped) return;
-      if(!isNewer(latest, window.spo.version)) return;
-      ui.update = { version: latest, url: rel.html_url || ("https://github.com/"+UPDATE_REPO+"/releases/latest") };
-      render();
-    })
-    .catch(function(){});                                  // offline: kein Thema
-}
-
-function updateBanner(){
-  if(!ui.update) return "";
-  var mac = window.spo && window.spo.platform === "darwin";
-  var steps = mac
-    ? '<li><b>Herunterladen</b> – die Datei <code>.dmg</code> vom Release.</li>'
-      + '<li><b>App beenden.</b></li>'
-      + '<li>Neue App in den Ordner <b>Programme</b> ziehen und das Ersetzen bestätigen.</li>'
-      + '<li>Beim ersten Start: <b>Rechtsklick auf die App → Öffnen</b>, dann noch einmal Öffnen. '
-      + 'Die Meldung kommt, weil die App nicht signiert ist.</li>'
-    : '<li><b>Herunterladen</b> – Installationsdatei vom Release.</li>'
-      + '<li><b>App beenden.</b></li>'
-      + '<li>Installation ausführen und die vorhandene Fassung ersetzen.</li>';
-
-  return '<div class="update">'
-    + '<div class="between"><h3>Version '+esc(ui.update.version)+' ist verfügbar</h3>'
-    + '<span class="small muted">installiert: '+esc(window.spo.version)+'</span></div>'
-    + '<p class="small muted" style="margin-top:5px;line-height:1.55">'
-    + 'Deine erfassten Daten bleiben dabei erhalten – sie liegen im Nutzerprofil, nicht in der App. '
-    + 'Vor dem Wechsel am besten einmal abgleichen.</p>'
-    + '<ol>'+steps+'</ol>'
-    + '<div class="controls">'
-    +   '<button class="btn btn--primary" data-relopen="1">Zur Download-Seite</button>'
-    +   '<button class="btn btn--ghost" data-relskip="1">Diese Version überspringen</button>'
-    + '</div></div>';
-}
-
-function toast(msg){
-  ui.toast = msg;
-  if(ui.toastTimer) clearTimeout(ui.toastTimer);
-  ui.toastTimer = setTimeout(function(){ ui.toast=null; render(); }, 2600);
+  if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function(){});
   render();
 }
 
@@ -899,13 +1126,14 @@ function toast(msg){
 function lessonProgress(l){
   var its = itemsOf(l.id);
   if(!its.length) return 0;
-  if(l.status==="done") return 1;
-  var idx = its.findIndex(function(i){ return i.id===l.currentItemId; });
-  return idx<0 ? 0 : idx/its.length;
+  var st = lessonStatus(l);
+  if(st==="done") return 1;
+  var idx = its.findIndex(function(i){ return i.isCurrent; });
+  if(idx>=0) return idx/its.length;
+  return its.filter(function(i){ return i.published; }).length / its.length;
 }
 function partStats(l){
-  var studs = studentsOf(l.courseId);
-  var scale = course(l.courseId).scale;
+  var studs = studentsOf(l.courseId), scale = scaleOf(l.courseId);
   var graded=0, absent=0, marked=0;
   studs.forEach(function(s){
     var p = part(l.id, s.id);
@@ -914,94 +1142,83 @@ function partStats(l){
     if(p.status) marked++;
     if(p.status==="excused" || p.status==="unexcused") absent++;
   });
-  return { total:studs.length, graded:graded, absent:absent, marked:marked, scale:scale, grading:gradesFor(scale).length>0 };
+  return { total:studs.length, graded:graded, absent:absent, marked:marked,
+           scale:scale, grading:gradesFor(scale).length>0 };
 }
 function statusBadge(l){
-  if(l.status==="running") return '<span class="badge badge--running">läuft</span>';
-  if(l.status==="done") return '<span class="badge badge--done">fertig</span>';
+  var s = lessonStatus(l);
+  if(s==="running") return '<span class="badge badge--running">läuft</span>';
+  if(s==="done") return '<span class="badge badge--done">fertig</span>';
   return '<span class="badge badge--planned">geplant</span>';
 }
 function lessonCard(l){
-  var c = course(l.courseId), st = partStats(l), prog = Math.round(lessonProgress(l)*100);
-  return ''
-    + '<button class="lesson '+(l.status==="running"?"lesson--running":"")+'" data-open="'+l.id+'">'
-    +   '<div class="lesson__top">'
-    +     '<div class="slot">'+l.slot+'<small>Std</small></div>'
-    +     '<div style="min-width:0;flex:1">'
-    +       '<div class="lesson__course">'+esc(c.name)+'</div>'
-    +       '<div class="lesson__title">'+esc(l.title)+'</div>'
-    +     '</div>'
-    +     statusBadge(l)
-    +   '</div>'
-    +   '<div class="bar"><i style="width:'+prog+'%"></i></div>'
-    +   '<div class="lesson__meta">'
-    +     '<span>'+itemsOf(l.id).length+' Schritte</span>'
-    +     '<span>·</span><span>'+(st.grading ? "Bewertet "+st.graded : "Erfasst "+st.marked)+'/'+st.total+'</span>'
-    +     (st.absent? '<span>·</span><span style="color:var(--bad)">'+st.absent+' fehlen</span>':'')
-    +   '</div>'
-    + '</button>';
+  var c = course(l.courseId) || {name:""}, st = partStats(l), prog = Math.round(lessonProgress(l)*100);
+  return '<button class="lesson '+(lessonStatus(l)==="running"?"lesson--running":"")+'" data-open="'+l.id+'">'
+    + '<div class="lesson__top"><div class="slot">'+l.lessonSlot+'<small>Std</small></div>'
+    + '<div style="min-width:0;flex:1"><div class="lesson__course">'+esc(c.name)+'</div>'
+    + '<div class="lesson__title">'+esc(l.title)+'</div></div>'+statusBadge(l)+'</div>'
+    + '<div class="bar"><i style="width:'+prog+'%"></i></div>'
+    + '<div class="lesson__meta"><span>'+itemsOf(l.id).length+' Schritte</span>'
+    + '<span>·</span><span>'+(st.grading ? "Bewertet "+st.graded : "Erfasst "+st.marked)+'/'+st.total+'</span>'
+    + (st.absent ? '<span>·</span><span style="color:var(--bad)">'+st.absent+' fehlen</span>':'')
+    + '</div></button>';
 }
 
 function viewToday(){
   var today = iso(new Date());
-  var list = state.local.lessons.filter(function(l){ return l.date===today; })
-    .sort(function(a,b){ return a.slot-b.slot; });
+  var list = state.local.lessons.filter(function(l){ return l.lessonDate===today; })
+    .sort(function(a,b){ return a.lessonSlot-b.lessonSlot; });
   var html = '<div class="section-title">'+deLong(today)+'</div>';
   if(!list.length){
-    html += '<div class="empty"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg><p>Heute keine Stunden geplant.</p></div>';
+    html += '<div class="empty"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/>'
+      + '<path d="M8 3v4M16 3v4M3 11h18"/></svg><p>Heute keine Stunden geplant.</p></div>';
   } else {
     html += '<div class="stack">'+list.map(lessonCard).join("")+'</div>';
   }
-  var upcoming = state.local.lessons.filter(function(l){ return l.date>today; })
-    .sort(function(a,b){ return a.date===b.date ? a.slot-b.slot : (a.date<b.date?-1:1); }).slice(0,3);
+  var upcoming = state.local.lessons.filter(function(l){ return l.lessonDate>today; })
+    .sort(function(a,b){ return a.lessonDate===b.lessonDate ? a.lessonSlot-b.lessonSlot : (a.lessonDate<b.lessonDate?-1:1); })
+    .slice(0,3);
   if(upcoming.length){
-    html += '<div class="section-title">Als Nächstes</div><div class="stack">';
-    html += upcoming.map(function(l){
-      var c=course(l.courseId);
-      return '<button class="lesson" data-open="'+l.id+'"><div class="lesson__top">'
-        + '<div class="slot">'+l.slot+'<small>Std</small></div>'
-        + '<div style="min-width:0;flex:1"><div class="lesson__course">'+esc(c.name)+' · '+deShort(l.date)+'</div>'
-        + '<div class="lesson__title">'+esc(l.title)+'</div></div>'+statusBadge(l)+'</div></button>';
-    }).join("");
-    html += '</div>';
+    html += '<div class="section-title">Als Nächstes</div><div class="stack">'
+      + upcoming.map(function(l){
+          var c = course(l.courseId) || {name:""};
+          return '<button class="lesson" data-open="'+l.id+'"><div class="lesson__top">'
+            + '<div class="slot">'+l.lessonSlot+'<small>Std</small></div>'
+            + '<div style="min-width:0;flex:1"><div class="lesson__course">'+esc(c.name)+' · '+deShort(l.lessonDate)+'</div>'
+            + '<div class="lesson__title">'+esc(l.title)+'</div></div>'+statusBadge(l)+'</div></button>';
+        }).join("") + '</div>';
   }
   return html;
 }
 
-function monthLabel(dstr){
-  return new Date(dstr+"T12:00:00").toLocaleDateString("de-DE",{month:"long",year:"numeric"});
-}
-
-/* Kursansicht: links die Kurse, rechts eine kompakte Stundentabelle.
-   Voreingestellt sind die kommenden Stunden – ein Kurs mit 30 Terminen wäre
-   als vollständige Liste unbrauchbar. */
 function viewCourses(){
   var today = iso(new Date());
-  if(!ui.courseId || !course(ui.courseId)) ui.courseId = state.meta.courses[0] && state.meta.courses[0].id;
+  if(!ui.courseId || !course(ui.courseId)) ui.courseId = (state.meta.courses[0]||{}).id;
   var c = course(ui.courseId);
   if(!c) return '<div class="empty">Keine Kurse vorhanden.</div>';
 
   var side = state.meta.courses.map(function(x){
     var n = state.local.lessons.filter(function(l){ return l.courseId===x.id; }).length;
     return '<button class="course-item" aria-current="'+(x.id===ui.courseId)+'" data-course="'+x.id+'">'
-      + '<b>'+esc(x.name)+'</b><small>'+n+' Stunden · '+studentsOf(x.id).length+' SuS · '+SCALE_LABEL[x.scale]+'</small></button>';
+      + '<b>'+esc(x.name)+'</b><small>'+n+' Stunden · '+studentsOf(x.id).length+' SuS · '
+      + SCALE_LABEL[x.participationScale||""]+'</small></button>';
   }).join("");
 
   var all = state.local.lessons.filter(function(l){ return l.courseId===c.id; });
   var q = ui.courseSearch.trim().toLowerCase();
   var list = all.filter(function(l){
-    if(ui.courseFilter==="upcoming" && l.date < today) return false;
-    if(ui.courseFilter==="open" && l.status==="done") return false;
+    if(ui.courseFilter==="upcoming" && l.lessonDate < today) return false;
+    if(ui.courseFilter==="open" && lessonStatus(l)==="done") return false;
     if(q && (l.title+" "+(l.goal||"")).toLowerCase().indexOf(q)<0) return false;
     return true;
-  }).sort(function(a,b){ return a.date===b.date ? a.slot-b.slot : (a.date<b.date?-1:1); });
+  }).sort(function(a,b){ return a.lessonDate===b.lessonDate ? a.lessonSlot-b.lessonSlot : (a.lessonDate<b.lessonDate?-1:1); });
 
   function chip(id,label,n){
     return '<button class="btn '+(ui.courseFilter===id?"btn--primary":"btn--ghost")+'" data-cfilter="'+id+'">'+label+' '+n+'</button>';
   }
   var toolbar = '<div class="toolbar">'
-    + chip("upcoming","Kommende", all.filter(function(l){ return l.date>=today; }).length)
-    + chip("open","Offen", all.filter(function(l){ return l.status!=="done"; }).length)
+    + chip("upcoming","Kommende", all.filter(function(l){ return l.lessonDate>=today; }).length)
+    + chip("open","Offen", all.filter(function(l){ return lessonStatus(l)!=="done"; }).length)
     + chip("all","Alle", all.length)
     + '<div style="flex:1"></div>'
     + '<input id="courseSearch" class="field" type="search" placeholder="Stunde suchen …" value="'+esc(ui.courseSearch)+'">'
@@ -1011,28 +1228,26 @@ function viewCourses(){
   if(!list.length){
     main = '<div class="empty">Keine Stunden in dieser Auswahl.</div>';
   } else {
-    var months = [], seen = {};
+    var months=[], seen={};
     list.forEach(function(l){
-      var m = l.date.slice(0,7);
-      if(!seen[m]){ seen[m] = { key:m, label:monthLabel(l.date), rows:[] }; months.push(seen[m]); }
+      var m = l.lessonDate.slice(0,7);
+      if(!seen[m]){ seen[m]={ label:monthLabel(l.lessonDate), rows:[] }; months.push(seen[m]); }
       seen[m].rows.push(l);
     });
     main = months.map(function(m){
       var rows = m.rows.map(function(l){
         var prog = Math.round(lessonProgress(l)*100);
-        return '<tr class="'+(l.date===today?"is-today":"")+'" data-open="'+l.id+'">'
-          + '<td class="c-date">'+deShort(l.date)+(l.date===today?' · heute':'')+'</td>'
-          + '<td class="c-slot">'+l.slot+'.</td>'
+        return '<tr class="'+(l.lessonDate===today?"is-today":"")+'" data-open="'+l.id+'">'
+          + '<td class="c-date">'+deShort(l.lessonDate)+(l.lessonDate===today?' · heute':'')+'</td>'
+          + '<td class="c-slot">'+l.lessonSlot+'.</td>'
           + '<td class="c-title">'+esc(l.title)+'</td>'
           + '<td class="c-prog"><div class="bar" style="margin:0"><i style="width:'+prog+'%"></i></div></td>'
-          + '<td class="c-state">'+statusBadge(l)+'</td>'
-          + '</tr>';
+          + '<td class="c-state">'+statusBadge(l)+'</td></tr>';
       }).join("");
       return '<div class="month"><div class="month__label">'+m.label+' · '+m.rows.length+'</div>'
         + '<table class="ltable"><tbody>'+rows+'</tbody></table></div>';
     }).join("");
   }
-
   return '<div class="course-layout"><aside class="course-side">'+side+'</aside>'
     + '<div class="course-main">'+toolbar+main+'</div></div>';
 }
@@ -1040,95 +1255,81 @@ function viewCourses(){
 function viewLesson(){
   var l = lesson(ui.lessonId);
   if(!l) return '<div class="empty">Stunde nicht gefunden.</div>';
-  var c = course(l.courseId), its = itemsOf(l.id);
-  var idx = its.findIndex(function(i){ return i.id===l.currentItemId; });
+  var c = course(l.courseId) || {name:"",participationScale:""};
+  var its = itemsOf(l.id), status = lessonStatus(l), s = stageData(l);
 
-  var head = '<div class="card">'
-    + '<div class="between"><div><div class="lesson__course">'+esc(c.name)+' · '+deShort(l.date)+' · '+l.slot+'. Stunde</div>'
-    + '<h2 style="margin-top:4px;font-size:1.2rem">'+esc(l.title)+'</h2></div>'+statusBadge(l)+'</div>'
-    + (l.goal? '<p class="small muted" style="margin-top:10px;line-height:1.55">'+esc(l.goal)+'</p>':'')
+  var head = '<div class="card"><div class="between"><div>'
+    + '<div class="lesson__course">'+esc(c.name)+' · '+deShort(l.lessonDate)+' · '+l.lessonSlot+'. Stunde</div>'
+    + '<h2 style="margin-top:3px;font-size:1.1rem">'+esc(l.title)+'</h2></div>'+statusBadge(l)+'</div>'
+    + (l.goal ? '<p class="small muted" style="margin-top:8px;line-height:1.55">'+esc(l.goal)+'</p>' : '')
     + '</div>';
 
-  var tabs = '<div class="row" style="margin:14px 0 12px;gap:8px">'
-    + '<button class="btn '+(ui.tab==="flow"?"btn--primary":"")+'" style="flex:1" data-tab="flow">Ablauf</button>'
-    + '<button class="btn '+(ui.tab==="part"?"btn--primary":"")+'" style="flex:1" data-tab="part">Mitarbeit</button>'
-    + '</div>';
+  var tabs = '<div class="row" style="margin:12px 0 10px;gap:6px">'
+    + '<button class="btn '+(ui.tab==="flow"?"btn--primary":"")+'" data-tab="flow">Ablauf</button>'
+    + '<button class="btn '+(ui.tab==="part"?"btn--primary":"")+'" data-tab="part">Mitarbeit</button></div>';
 
   var body;
   if(ui.tab==="flow"){
-    var s = stageData(l);
-
-    /* Cockpit: links das, was die Klasse sieht – rechts, was nur die Lehrkraft sieht. */
     var cockpit = "";
-    if(l.status!=="planned"){
+    if(status!=="planned"){
       var stage = '<div class="panel panel--stage">'
-        + '<div class="panel__label"><span class="dot"></span>Für die Klasse · Schritt '+s.step+' von '+s.total+'</div>'
-        + '<div class="stage__title">'+(s.done ? "Das war die Stunde" : esc(s.item ? s.item.title : "–"))+'</div>'
-        + (s.done ? '' : (s.item && s.item.description ? fmt(s.item.description) : '<p class="fmt">Kein Text hinterlegt.</p>'))
+        + '<div class="panel__label"><span class="dot"></span>Für die Klasse'
+        + (s.item ? ' · Schritt '+s.step+' von '+s.total : '')+'</div>'
+        + '<div class="stage__title">'+(s.item ? esc(s.item.title) : "Das war die Stunde")+'</div>'
+        + (s.item ? (s.item.description ? fmt(s.item.description) : '<p class="fmt">Kein Text hinterlegt.</p>') : '')
         + '</div>';
-
-      var notes = '<div class="panel panel--notes">'
-        + '<div class="panel__label">Nur für dich</div>'
+      var notes = '<div class="panel panel--notes"><div class="panel__label">Nur für dich</div>'
         + (s.item && s.item.teacherNote
             ? '<div class="teacher-note">'+esc(s.item.teacherNote)+'</div>'
             : '<p class="small muted">Für diesen Schritt ist kein Hinweis hinterlegt.</p>')
         + (s.next
             ? '<div class="next"><b>Als Nächstes</b>'+esc(s.next.title)
-              + (s.next.teacherNote ? '<div class="teacher-note">'+esc(s.next.teacherNote)+'</div>' : '')
-              + '</div>'
-            : '<div class="next"><b>Als Nächstes</b>Letzter Schritt der Stunde</div>')
+              + (s.next.teacherNote ? '<div class="teacher-note">'+esc(s.next.teacherNote)+'</div>' : '')+'</div>'
+            : '<div class="next"><b>Als Nächstes</b>'+(s.item?"Letzter Schritt der Stunde":"Stunde beendet")+'</div>')
         + '</div>';
-
       cockpit = '<div class="cockpit">'+stage+notes+'</div>';
     }
 
-    /* Steuerung: eine schmale Werkzeugleiste, keine breiten Balken. */
-    var nav1, project = "";
-    if(l.status==="planned"){
+    var nav1, project="";
+    if(status==="planned"){
       nav1 = '<button class="btn btn--primary" data-start="'+l.id+'">Stunde starten</button>';
-    } else if(l.status==="done"){
+    } else if(!s.item){
       nav1 = '<button class="btn" data-prev="'+l.id+'">Zurück</button>'
         + '<button class="btn btn--primary" data-tab="part">Mitarbeit prüfen</button>';
     } else {
-      var last = idx===its.length-1;
-      nav1 = '<button class="btn" data-prev="'+l.id+'"'+(idx<=0?" disabled":"")+'>Zurück</button>'
+      var last = s.step>=s.total;
+      nav1 = '<button class="btn" data-prev="'+l.id+'"'+(s.step<=1?" disabled":"")+'>Zurück</button>'
         + '<button class="btn btn--primary" data-next="'+l.id+'">'+(last?"Stunde abschließen":"Weiter")+'</button>'
         + '<span class="small muted" style="margin-left:4px">Schritt '+s.step+' von '+s.total+' · ← → oder Leertaste</span>';
     }
-    if(l.status!=="planned"){
+    if(status!=="planned"){
       project = '<span class="spacer"></span>'
         + '<button class="btn btn--ghost" data-present="1" title="Zweites Fenster für den Beamer">'
-        +   (presenterOpen()?"Präsentation schließen":"Präsentationsfenster")+'</button>'
+        + (presenterOpen()?"Präsentation schließen":"Präsentationsfenster")+'</button>'
         + '<button class="btn btn--ghost" data-fs="1" title="Vollbild auf diesem Bildschirm">Vollbild</button>';
     }
-    var controls = '<div class="controls">'+nav1+project+'</div>';
 
-    /* Kompakte Schrittliste zum Springen */
     var steps = '<div class="section-title">Ablauf</div>' + its.map(function(i,n){
-      var cls = i.id===l.currentItemId ? "step--current" : (idx>=0 && n<idx) || l.status==="done" ? "step--done" : "";
+      var cls = i.isCurrent ? "step--current" : i.published ? "step--done" : "";
       return '<div class="step '+cls+'" data-jump="'+i.id+'">'
-        + '<div class="step__num">'+(n+1)+'</div>'
-        + '<div class="step__body">'
-        +   '<div class="between"><div class="step__title">'+esc(i.title)+'</div>'
-        +     '<button class="badge '+(i.published?"badge--done":"badge--planned")+'" data-pub="'+i.id+'">'+(i.published?"freigegeben":"intern")+'</button></div>'
-        +   (i.teacherNote? '<div class="note"><b>Nur für dich</b>'+esc(i.teacherNote)+'</div>':'')
+        + '<div class="step__num">'+(n+1)+'</div><div class="step__body">'
+        + '<div class="between"><div class="step__title">'+esc(i.title)+'</div>'
+        + '<button class="badge '+(i.published?"badge--done":"badge--planned")+'" data-pub="'+i.id+'">'
+        + (i.published?"freigegeben":"intern")+'</button></div>'
+        + (i.teacherNote ? '<div class="note"><b>Nur für dich</b>'+esc(i.teacherNote)+'</div>' : '')
         + '</div></div>';
     }).join("");
 
-    body = cockpit + controls + steps;
+    body = cockpit + '<div class="controls">'+nav1+project+'</div>' + steps;
   } else {
-    var scale = c.scale, marks = gradesFor(scale), grading = marks.length>0;
-
+    var scale = c.participationScale||"", marks = gradesFor(scale), grading = marks.length>0;
     var rows = studentsOf(c.id).map(function(st2){
       var p = part(l.id, st2.id) || {};
       var away = p.status==="excused" || p.status==="unexcused";
-
       var statusBtns = STATUS.map(function(s3){
         return '<button class="'+s3.cls+'" aria-pressed="'+(p.status===s3.id)+'" title="'+s3.label+'"'
           + ' data-status="'+st2.id+'|'+s3.id+'">'+s3.short+'</button>';
       }).join("");
-
-      /* Note 1–6 als Auswahlfeld, +/- Skalen als Segmentleiste – wie in der Nextcloud-App. */
       var gradeCell;
       if(!grading){ gradeCell = '<span class="no-scale">ohne Bewertung</span>'; }
       else if(away){ gradeCell = '<span class="no-scale">–</span>'; }
@@ -1142,27 +1343,21 @@ function viewLesson(){
           return '<button aria-pressed="'+(p.grade===g)+'" data-grade="'+st2.id+'|'+g+'">'+esc(g)+'</button>';
         }).join("")+'</div>';
       }
-
-      return '<div class="student">'
-        + '<div class="student__name"><span>'+esc(st2.name)+'</span>'
-        +   (isDirty(p)&&p.updatedAt? '<span class="badge badge--dirty">offen</span>':'') + '</div>'
-        + '<div class="seg seg--status">'+statusBtns+'</div>'
-        + '<div>'+gradeCell+'</div>'
+      return '<div class="student"><div class="student__name"><span>'+esc(st2.name)+'</span>'
+        + (isDirty(p)? '<span class="badge badge--dirty">offen</span>':'')+'</div>'
+        + '<div class="seg seg--status">'+statusBtns+'</div><div>'+gradeCell+'</div>'
         + '<button class="student__note '+(p.note?"has":"")+'" data-note="'+st2.id+'" title="Notiz bearbeiten">'
-        +   (p.note? esc(p.note) : "Notiz …") + '</button>'
-        + '</div>';
+        + (p.note? esc(p.note) : "Notiz …")+'</button></div>';
     }).join("");
 
     var stt = partStats(l);
-    var progressLabel = stt.grading
-      ? '<b>'+stt.graded+' von '+stt.total+'</b> bewertet'
-      : '<b>'+stt.marked+' von '+stt.total+'</b> erfasst';
-    var progressValue = stt.total ? Math.round((stt.grading? stt.graded : stt.marked)/stt.total*100) : 0;
-
-    body = '<div class="card" style="margin-bottom:var(--gap)">'
-      + '<div class="between"><div class="small">'+progressLabel+'</div>'
+    var label = stt.grading ? '<b>'+stt.graded+' von '+stt.total+'</b> bewertet'
+                            : '<b>'+stt.marked+' von '+stt.total+'</b> erfasst';
+    var value = stt.total ? Math.round((stt.grading?stt.graded:stt.marked)/stt.total*100) : 0;
+    body = '<div class="card" style="margin-bottom:var(--gap)"><div class="between">'
+      + '<div class="small">'+label+'</div>'
       + '<div class="small muted">'+SCALE_LABEL[scale]+' · '+stt.absent+' abwesend</div></div>'
-      + '<div class="bar"><i style="width:'+progressValue+'%"></i></div></div>'
+      + '<div class="bar"><i style="width:'+value+'%"></i></div></div>'
       + '<div class="students">'+rows+'</div>';
   }
   return head + tabs + body;
@@ -1170,59 +1365,99 @@ function viewLesson(){
 
 function viewSync(){
   var pend = pendingChanges();
-  var html = '<div class="section-title">Abgleich</div><div class="card">'
+  var live = state.conn.connected;
+
+  /* --- Verbindung --- */
+  var conn;
+  if(!apiAvailable()){
+    conn = '<div class="card"><div class="between"><b class="small">Verbindung</b>'
+      + '<span class="badge badge--planned">Demo</span></div>'
+      + '<p class="small muted" style="margin-top:7px;line-height:1.55">'
+      + 'Im Browser gibt es keine Verbindung zur Nextcloud – das verhindert der '
+      + 'Sicherheitsmechanismus für seitenübergreifende Anfragen. In der Desktop-App '
+      + 'laufen die Anfragen im Hintergrundprozess und funktionieren. Hier läuft alles '
+      + 'gegen einen simulierten Server, damit sich der Ablauf trotzdem durchspielen lässt.</p></div>';
+  } else if(live && !ui.connDraft){
+    conn = '<div class="card"><div class="between"><b class="small">Verbunden</b>'
+      + '<span class="badge badge--done">Nextcloud</span></div>'
+      + '<div class="kv"><span class="muted">Adresse</span><b>'+esc(state.conn.baseUrl)+'</b></div>'
+      + '<div class="kv"><span class="muted">Benutzer</span><b>'+esc(state.conn.user)+'</b></div>'
+      + '<div class="controls"><button class="btn btn--ghost" data-connedit="1">Ändern</button>'
+      + '<button class="btn btn--danger" data-disconnect="1">Trennen</button></div></div>';
+  } else {
+    var d = ui.connDraft || { baseUrl:state.conn.baseUrl||"", user:state.conn.user||"", password:"" };
+    conn = '<div class="card"><div class="between"><b class="small">Mit der Nextcloud verbinden</b>'
+      + '<span class="badge badge--planned">Demo</span></div>'
+      + '<p class="small muted" style="margin-top:7px;line-height:1.55">Benötigt School Planner '
+      + '<b>1.3.0</b> in der Nextcloud und ein <b>App-Passwort</b>: dort unter '
+      + '<i>Einstellungen → Sicherheit → Geräte &amp; Sitzungen</i> einen Namen eintragen und '
+      + '<i>Neues App-Passwort erstellen</i>. Das Passwort wird nur einmal angezeigt.</p>'
+      + '<div class="stack" style="margin-top:10px">'
+      + '<input id="connUrl" class="field" style="width:100%" placeholder="https://cloud.example.org" value="'+esc(d.baseUrl)+'">'
+      + '<input id="connUser" class="field" style="width:100%" placeholder="Benutzername" value="'+esc(d.user)+'">'
+      + '<input id="connPass" class="field" style="width:100%" type="password" placeholder="App-Passwort" value="'+esc(d.password)+'">'
+      + '</div>'
+      + '<p class="small muted" style="margin-top:8px">Das App-Passwort wird verschlüsselt im '
+      + 'Schlüsselbund abgelegt und verlässt dieses Gerät nur Richtung deiner Nextcloud.</p>'
+      + '<div class="controls"><button class="btn btn--primary" data-conntest="1"'+(ui.busy?" disabled":"")+'>'
+      + (ui.busy?"Prüfe …":"Verbindung testen")+'</button>'
+      + (state.conn.baseUrl ? '<button class="btn btn--ghost" data-conncancel="1">Abbrechen</button>' : '')
+      + '</div></div>';
+  }
+
+  var html = '<div class="section-title">Verbindung</div>'+conn
+    + '<div class="section-title">Abgleich</div><div class="card">'
     + '<div class="kv"><span class="muted">Letzter Abgleich</span><b>'+relTime(state.lastSync)+'</b></div>'
     + '<div class="kv"><span class="muted">Offene Änderungen</span><b style="color:'+(pend.length?"var(--warn)":"var(--ok)")+'">'+pend.length+'</b></div>'
     + '<div class="kv"><span class="muted">Konflikte</span><b style="color:'+(state.conflicts.length?"var(--bad)":"var(--ok)")+'">'+state.conflicts.length+'</b></div>'
-    + '</div>'
-    + '<div class="row" style="gap:8px;margin-top:12px">'
-    + '<button class="btn" style="flex:1" data-pull="1">Von Nextcloud laden</button>'
-    + '<button class="btn btn--primary" style="flex:1" data-push="1"'+(pend.length?"":" disabled")+'>Übertragen</button>'
-    + '</div>';
+    + '<div class="controls"><button class="btn btn--primary" data-sync="1"'+(ui.busy?" disabled":"")+'>'
+    + (ui.busy?"Läuft …":(live?"Jetzt abgleichen":"Abgleich simulieren"))+'</button>'
+    + '<span class="small muted">Erst senden, dann holen.</span></div></div>';
 
   if(state.conflicts.length){
-    html += '<div class="section-title">Konflikte – bitte entscheiden</div>';
-    html += state.conflicts.map(function(c){
-      return '<div class="conflict"><b>'+esc(c.label)+'</b>'
-        + '<p class="small muted" style="margin-top:6px">Auf beiden Seiten geändert. Welche Version gilt?</p>'
-        + '<div class="choice">'
-        +   '<button data-keep="'+c.id+'|mine"><small>Dieses Gerät</small><strong>'+esc(c.mine)+'</strong></button>'
-        +   '<button data-keep="'+c.id+'|theirs"><small>Nextcloud</small><strong>'+esc(c.theirs)+'</strong></button>'
-        + '</div></div>';
-    }).join("");
+    html += '<div class="section-title">Konflikte – bitte entscheiden</div>'
+      + state.conflicts.map(function(c){
+          var orphan = c.kind==="orphan";
+          return '<div class="conflict"><b>'+esc(c.label)+'</b>'
+            + '<p class="small muted" style="margin-top:5px">'
+            + (orphan ? 'Der Eintrag existiert in der Nextcloud nicht mehr.'
+                      : 'Auf beiden Seiten geändert. Welche Fassung gilt?')+'</p>'
+            + '<div class="choice">'
+            + '<button data-keep="'+c.id+'|mine"><small>Dieses Gerät</small><strong>'+esc(c.mine)+'</strong></button>'
+            + '<button data-keep="'+c.id+'|theirs"><small>'+(orphan?"Verwerfen":"Nextcloud")+'</small><strong>'+esc(c.theirs)+'</strong></button>'
+            + '</div></div>';
+        }).join("");
   }
 
-  html += '<div class="section-title">Noch nicht übertragen</div><div class="card">';
-  html += pend.length
-    ? pend.map(function(p){ return '<div class="change"><span class="dot" style="margin-top:6px"></span><span>'+esc(p.label)+'</span></div>'; }).join("")
-    : '<p class="small muted">Alles übertragen. Du kannst offline weiterarbeiten.</p>';
-  html += '</div>';
+  html += '<div class="section-title">Noch nicht übertragen</div><div class="card">'
+    + (pend.length
+        ? pend.map(function(p){ return '<div class="change"><span class="dot"></span><span>'+esc(p.label)+'</span></div>'; }).join("")
+        : '<p class="small muted">Alles übertragen. Du kannst offline weiterarbeiten.</p>')
+    + '</div>';
 
-  html += '<div class="section-title">Demo-Werkzeuge</div><div class="card">'
-    + '<p class="small muted" style="line-height:1.55">Es gibt noch keinen echten Server. Hier lässt sich simulieren, dass jemand parallel in der Nextcloud gearbeitet hat – so kannst du die Konfliktbehandlung ausprobieren.</p>'
-    + '<div class="stack" style="margin-top:12px">'
-    + '<button class="btn btn--wide" data-simulate="1">Änderung in der Nextcloud simulieren</button>'
-    + '<button class="btn btn--wide btn--danger" data-reset="1">Demodaten zurücksetzen</button>'
-    + '</div></div>';
+  if(!live){
+    html += '<div class="section-title">Demo-Werkzeuge</div><div class="card">'
+      + '<p class="small muted" style="line-height:1.55">Simuliert, dass jemand parallel in der '
+      + 'Nextcloud gearbeitet hat – so lässt sich die Konfliktbehandlung ausprobieren.</p>'
+      + '<div class="controls"><button class="btn" data-simulate="1">Änderung simulieren</button>'
+      + '<button class="btn btn--danger" data-reset="1">Demodaten zurücksetzen</button></div></div>';
+  }
   return html;
 }
 
 /* ---------- Rahmen ---------- */
 function topbar(){
-  var pend = pendingChanges().length;
   var title, sub, back="";
   if(ui.view==="lesson"){
     var l = lesson(ui.lessonId);
     back = '<button class="back" data-back="1">‹</button>';
-    title = "Stunde"; sub = l ? deShort(l.date)+" · "+l.slot+". Stunde" : "";
+    title = "Stunde"; sub = l ? deShort(l.lessonDate)+" · "+l.lessonSlot+". Stunde" : "";
   } else if(ui.view==="courses"){ title="Kurse"; sub=state.meta.courses.length+" Kurse"; }
-  else if(ui.view==="sync"){ title="Abgleich"; sub="Zuletzt "+relTime(state.lastSync); }
+  else if(ui.view==="sync"){ title="Abgleich"; sub=(state.conn.connected?"verbunden · ":"Demo · ")+"zuletzt "+relTime(state.lastSync); }
   else { title="Heute"; sub=deLong(iso(new Date())); }
 
-  /* Kein Zähler mehr in der Kopfzeile – die Zahl steht bereits am Reiter
-     "Abgleich", zweimal dasselbe zu zeigen stiftet nur Verwirrung. */
   var themeBtn = '<button class="icon-btn" data-theme="1" title="Erscheinungsbild: '
-    + ({system:"System",light:"Hell",dark:"Dunkel"}[themePref]) + '">'
+    + ({system:"System",light:"Hell",dark:"Dunkel"}[themePref])+'">'
     + '<svg viewBox="0 0 24 24">'+THEME_ICON[themePref]+'</svg></button>';
 
   return '<div class="topbar">'+back
@@ -1235,8 +1470,7 @@ function nav(){
   function b(id,label,path){
     return '<button data-go="'+id+'" aria-current="'+(ui.view===id||(id==="today"&&ui.view==="lesson"))+'">'
       + '<svg viewBox="0 0 24 24">'+path+'</svg><span>'+label+'</span>'
-      + (id==="sync"&&pend? '<span class="count">'+pend+'</span>':'')
-      + '</button>';
+      + (id==="sync"&&pend ? '<span class="count">'+pend+'</span>':'')+'</button>';
   }
   return '<div class="nav">'
     + b("today","Heute",'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/>')
@@ -1247,35 +1481,29 @@ function nav(){
 
 function sheet(){
   if(!ui.sheet) return "";
-  var s = ui.sheet;
-  var st = state.meta.students.filter(function(x){ return x.id===s.studentId; })[0];
-  var p = part(s.lessonId, s.studentId) || {};
+  var st = state.meta.students.filter(function(x){ return x.id===ui.sheet.studentId; })[0] || {name:"?"};
+  var p = part(ui.sheet.lessonId, ui.sheet.studentId) || {};
   return '<div class="sheet-bg" data-sheetbg="1"><div class="sheet">'
     + '<h3>Notiz zu '+esc(st.name)+'</h3>'
-    + '<p class="small muted" style="margin-top:4px">Nur für dich sichtbar, wird mit der Mitarbeit übertragen.</p>'
+    + '<p class="small muted" style="margin-top:3px">Nur für dich sichtbar, wird mit der Mitarbeit übertragen.</p>'
     + '<textarea id="noteInput" placeholder="z. B. hat die Gruppe gut moderiert">'+esc(p.note||"")+'</textarea>'
-    + '<div class="row" style="gap:8px;margin-top:14px">'
-    +   '<button class="btn" style="flex:1" data-sheetbg="1">Abbrechen</button>'
-    +   '<button class="btn btn--primary" style="flex:1" data-savenote="1">Speichern</button>'
-    + '</div></div></div>';
+    + '<div class="controls"><button class="btn btn--primary" data-savenote="1">Speichern</button>'
+    + '<button class="btn" data-sheetbg="1">Abbrechen</button></div></div></div>';
 }
 
 function overlay(){
   if(!ui.fullscreen || ui.view!=="lesson") return "";
   var l = lesson(ui.lessonId); if(!l) return "";
-  var s = stageData(l);
-  var last = s.step>=s.total;
+  var s = stageData(l), last = s.item && s.step>=s.total;
   return '<div class="overlay">'
     + '<div class="overlay__meta">'+esc(s.courseName)+' · '+esc(s.lessonTitle)+'</div>'
-    + '<h1 class="overlay__title">'+(s.done?"Das war die Stunde":esc(s.item?s.item.title:""))+'</h1>'
-    + '<div class="overlay__body">'+(s.done?"":fmt(s.item?s.item.description:""))+'</div>'
-    + '<div class="presbar">'
-    +   '<button class="btn" data-prev="'+l.id+'">Zurück</button>'
-    +   '<div class="grow"><div class="bar"><i style="width:'+(s.done?100:Math.round(s.step/s.total*100))+'%"></i></div>'
-    +     '<div class="small muted" style="margin-top:6px">'+(s.done?"abgeschlossen":"Schritt "+s.step+" von "+s.total)+'</div></div>'
-    +   (s.done ? '' : '<button class="btn btn--primary" data-next="'+l.id+'">'+(last?"Abschließen":"Weiter")+'</button>')
-    +   '<button class="btn btn--ghost" data-fsexit="1">Beenden</button>'
-    + '</div></div>';
+    + '<h1 class="overlay__title">'+(s.item?esc(s.item.title):"Das war die Stunde")+'</h1>'
+    + '<div class="overlay__body">'+(s.item?fmt(s.item.description):"")+'</div>'
+    + '<div class="presbar"><button class="btn" data-prev="'+l.id+'">Zurück</button>'
+    + '<div class="grow"><div class="bar"><i style="width:'+(s.item?Math.round(s.step/s.total*100):100)+'%"></i></div>'
+    + '<div class="small muted" style="margin-top:5px">'+(s.item?"Schritt "+s.step+" von "+s.total:"abgeschlossen")+'</div></div>'
+    + (s.item ? '<button class="btn btn--primary" data-next="'+l.id+'">'+(last?"Abschließen":"Weiter")+'</button>' : '')
+    + '<button class="btn btn--ghost" data-fsexit="1">Beenden</button></div></div>';
 }
 
 function render(){
@@ -1283,13 +1511,13 @@ function render(){
     : ui.view==="courses" ? viewCourses()
     : ui.view==="sync" ? viewSync()
     : viewLesson();
+
   document.getElementById("app").innerHTML =
-    '<div class="titlebar"></div>'
-    + '<div class="app">'+topbar()+updateBanner()+body+'</div>'+sheet()+overlay()
-    + (ui.toast? '<div class="toast">'+esc(ui.toast)+'</div>':'');
+    '<div class="titlebar"></div><div class="app">'+topbar()+updateBanner()+body+'</div>'
+    + sheet()+overlay()+(ui.toast ? '<div class="toast">'+esc(ui.toast)+'</div>' : '');
+
   var ta = document.getElementById("noteInput");
   if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
-
   if(ui.searchFocus){
     var sf = document.getElementById("courseSearch");
     if(sf){ sf.focus(); try{ sf.setSelectionRange(sf.value.length, sf.value.length); }catch(e){} }
@@ -1298,45 +1526,31 @@ function render(){
   updatePresenter();
 }
 
-/* ---------- Ereignisse ---------- */
+/* =========================================================================
+   Ereignisse
+   ========================================================================= */
+function connDraftFromDom(){
+  var g = function(id){ var e=document.getElementById(id); return e ? e.value : ""; };
+  return { baseUrl:g("connUrl").trim(), user:g("connUser").trim(), password:g("connPass") };
+}
+
 document.addEventListener("click", function(ev){
   if(!ev.target || !ev.target.closest) return;
-  var el = ev.target.closest("[data-go],[data-open],[data-back],[data-tab],[data-start],[data-next],[data-prev],[data-jump],[data-pub],[data-status],[data-grade],[data-note],[data-savenote],[data-sheetbg],[data-pull],[data-push],[data-keep],[data-simulate],[data-reset],[data-present],[data-fs],[data-fsexit],[data-theme],[data-course],[data-cfilter],[data-relopen],[data-relskip]");
+  var el = ev.target.closest("[data-go],[data-open],[data-back],[data-tab],[data-start],[data-next],"
+    + "[data-prev],[data-jump],[data-pub],[data-status],[data-grade],[data-note],[data-savenote],"
+    + "[data-sheetbg],[data-sync],[data-keep],[data-simulate],[data-reset],[data-present],[data-fs],"
+    + "[data-fsexit],[data-theme],[data-course],[data-cfilter],[data-relopen],[data-relskip],"
+    + "[data-conntest],[data-connedit],[data-conncancel],[data-disconnect]");
   if(!el) return;
   var d = el.dataset;
 
   if(d.savenote){
-    var ta2 = document.getElementById("noteInput");
-    setPart(ui.sheet.lessonId, ui.sheet.studentId, { note: ta2 ? ta2.value.trim() : "" });
+    var ta = document.getElementById("noteInput");
+    setPart(ui.sheet.lessonId, ui.sheet.studentId, { note: ta ? ta.value.trim() : "" });
     ui.sheet=null; render(); return;
   }
   if(d.sheetbg){ if(ev.target===el || el.classList.contains("btn")){ ui.sheet=null; render(); } return; }
-  if(d.go){ ui.view=d.go; window.scrollTo(0,0); render(); return; }
-  if(d.back){ ui.view="today"; render(); return; }
-  if(d.open){ ui.view="lesson"; ui.lessonId=parseInt(d.open,10); ui.tab="flow"; window.scrollTo(0,0); render(); return; }
-  if(d.tab){ ui.tab=d.tab; render(); return; }
-  if(d.start){ startLesson(parseInt(d.start,10)); return; }
-  if(d.next){ nextStep(parseInt(d.next,10)); return; }
-  if(d.prev){ prevStep(parseInt(d.prev,10)); return; }
-  if(d.pub){ ev.stopPropagation(); togglePublish(parseInt(d.pub,10)); return; }
-  if(d.jump){ jumpTo(ui.lessonId, parseInt(d.jump,10)); return; }
 
-  if(d.status){
-    var a = d.status.split("|");
-    var cur = part(ui.lessonId, parseInt(a[0],10));
-    setPart(ui.lessonId, parseInt(a[0],10), { status: (cur && cur.status===a[1]) ? "" : a[1] });
-    render(); return;
-  }
-  if(d.grade){
-    var b2 = d.grade.split("|");
-    var cur2 = part(ui.lessonId, parseInt(b2[0],10));
-    setPart(ui.lessonId, parseInt(b2[0],10), {
-      grade: (cur2 && cur2.grade===b2[1]) ? "" : b2[1],
-      status: (cur2 && cur2.status) ? cur2.status : "present"
-    });
-    render(); return;
-  }
-  if(d.note){ ui.sheet = { lessonId:ui.lessonId, studentId:parseInt(d.note,10) }; render(); return; }
   if(d.relopen){
     if(window.spo && window.spo.openExternal) window.spo.openExternal(ui.update.url);
     else window.open(ui.update.url, "_blank");
@@ -1344,54 +1558,80 @@ document.addEventListener("click", function(ev){
   }
   if(d.relskip){
     try{ localStorage.setItem(UPDATE_SKIP_KEY, ui.update.version); }catch(e){}
-    ui.update = null; render(); return;
+    ui.update=null; render(); return;
   }
+
+  if(d.conntest){ testConnection(connDraftFromDom()); return; }
+  if(d.connedit){ ui.connDraft = { baseUrl:state.conn.baseUrl, user:state.conn.user, password:"" }; render(); return; }
+  if(d.conncancel){ ui.connDraft = null; render(); return; }
+  if(d.disconnect){ disconnect(); return; }
+
   if(d.theme){ cycleTheme(); return; }
-  if(d.course){ ui.courseId = parseInt(d.course,10); ui.courseSearch=""; render(); return; }
-  if(d.cfilter){ ui.courseFilter = d.cfilter; render(); return; }
+  if(d.go){ ui.view=d.go; window.scrollTo(0,0); render(); return; }
+  if(d.back){ ui.view="today"; render(); return; }
+  if(d.open){ ui.view="lesson"; ui.lessonId=parseInt(d.open,10); ui.tab="flow"; window.scrollTo(0,0); render(); return; }
+  if(d.tab){ ui.tab=d.tab; render(); return; }
+  if(d.course){ ui.courseId=parseInt(d.course,10); ui.courseSearch=""; render(); return; }
+  if(d.cfilter){ ui.courseFilter=d.cfilter; render(); return; }
+
+  if(d.start){ startLesson(parseInt(d.start,10)); return; }
+  if(d.next){ nextStep(parseInt(d.next,10)); return; }
+  if(d.prev){ prevStep(parseInt(d.prev,10)); return; }
+  if(d.pub){ ev.stopPropagation(); togglePublish(parseInt(d.pub,10)); return; }
+  if(d.jump){ jumpTo(ui.lessonId, parseInt(d.jump,10)); return; }
+
+  if(d.status){
+    var a = d.status.split("|"), sid = parseInt(a[0],10);
+    var cur = part(ui.lessonId, sid);
+    setPart(ui.lessonId, sid, { status: (cur && cur.status===a[1]) ? "" : a[1] });
+    render(); return;
+  }
+  if(d.grade){
+    var b = d.grade.split("|"), sid2 = parseInt(b[0],10);
+    var cur2 = part(ui.lessonId, sid2);
+    setPart(ui.lessonId, sid2, {
+      grade: (cur2 && cur2.grade===b[1]) ? "" : b[1],
+      status: (cur2 && cur2.status) ? cur2.status : "present"
+    });
+    render(); return;
+  }
+  if(d.note){ ui.sheet = { lessonId:ui.lessonId, studentId:parseInt(d.note,10) }; render(); return; }
+
   if(d.present){ if(presenterOpen()) closePresenter(); else openPresenter(); render(); return; }
   if(d.fs){ enterFullscreen(); return; }
   if(d.fsexit){ exitFullscreen(); return; }
 
-  if(d.pull){
-    var r = pull();
-    toast(r.conflicts ? r.conflicts+" Konflikt(e) – bitte entscheiden"
-      : "Geladen: "+r.added+" neu, "+r.updated+" aktualisiert");
-    return;
-  }
-  if(d.push){
-    var r2 = push();
-    toast(r2.conflicts ? r2.conflicts+" Konflikt(e) – bitte entscheiden" : r2.sent+" Änderungen übertragen");
-    return;
-  }
-  if(d.keep){ var k2=d.keep.split("|"); resolveConflict(k2[0], k2[1]); return; }
+  if(d.sync){ doSync(); return; }
+  if(d.keep){ var k=d.keep.split("|"); resolveConflict(k[0], k[1]); return; }
   if(d.simulate){ toast(simulateServerEdit()); return; }
   if(d.reset){
     if(confirm("Alle lokalen Daten verwerfen und die Demo neu aufsetzen?")){
-      state = freshState(); save(); ui.view="today"; toast("Demodaten zurückgesetzt");
+      var conn = state.conn;
+      state = freshState(); state.conn = conn; save();
+      ui.view="today"; toast("Demodaten zurückgesetzt");
     }
     return;
   }
 });
 
-/* Suche in der Kursansicht – Fokus und Schreibmarke überleben das Neuzeichnen. */
+/* Suche in der Kursansicht – Fokus und Schreibmarke ueberleben das Neuzeichnen. */
 document.addEventListener("input", function(ev){
-  if(!ev.target || ev.target.id!=="courseSearch") return;
-  ui.courseSearch = ev.target.value;
-  ui.searchFocus = true;
-  render();
+  if(!ev.target) return;
+  if(ev.target.id==="courseSearch"){
+    ui.courseSearch = ev.target.value; ui.searchFocus = true; render(); return;
+  }
+  if(ev.target.id==="connUrl" || ev.target.id==="connUser" || ev.target.id==="connPass"){
+    ui.connDraft = connDraftFromDom();     // ohne Neuzeichnen: Eingabe bleibt stehen
+  }
 });
 
 /* Notenauswahl 1–6 */
 document.addEventListener("change", function(ev){
   var el = ev.target;
   if(!el || !el.dataset || !el.dataset.gradesel) return;
-  var studentId = parseInt(el.dataset.gradesel, 10);
-  var cur = part(ui.lessonId, studentId);
-  setPart(ui.lessonId, studentId, {
-    grade: el.value,
-    status: (cur && cur.status) ? cur.status : "present"
-  });
+  var sid = parseInt(el.dataset.gradesel, 10);
+  var cur = part(ui.lessonId, sid);
+  setPart(ui.lessonId, sid, { grade: el.value, status: (cur && cur.status) ? cur.status : "present" });
   render();
 });
 
@@ -1399,9 +1639,10 @@ document.addEventListener("change", function(ev){
 document.addEventListener("keydown", function(ev){
   if(ui.sheet) return;
   var tag = ev.target && ev.target.tagName;
-  if(tag==="TEXTAREA" || tag==="INPUT") return;
+  if(tag==="TEXTAREA" || tag==="INPUT" || tag==="SELECT") return;
   if(ui.view!=="lesson" || ui.tab!=="flow") return;
-  var l = lesson(ui.lessonId); if(!l || l.status==="planned") return;
+  var l = lesson(ui.lessonId);
+  if(!l || lessonStatus(l)==="planned") return;
 
   if(ev.key==="ArrowRight" || ev.key==="PageDown" || ev.key===" "){ ev.preventDefault(); nextStep(l.id); }
   else if(ev.key==="ArrowLeft" || ev.key==="PageUp"){ ev.preventDefault(); prevStep(l.id); }
@@ -1413,18 +1654,13 @@ document.addEventListener("fullscreenchange", function(){
 
 /* ---------- Start ---------- */
 initTheme();
-/* In der macOS-App liegt die Kopfzeile hinter den Fensterknöpfen – dort braucht
-   sie oben Platz und muss als Greiffläche zum Verschieben dienen. */
-if(window.spo && window.spo.platform === "darwin"){
-  document.body.classList.add("is-mac-app");
-}
+if(window.spo && window.spo.platform==="darwin"){ document.body.classList.add("is-mac-app"); }
 state = load();
 save();
 render();
+loadConnection();
 checkForUpdate();
-if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
-  navigator.serviceWorker.register("sw.js").catch(function(){});
-}
+
 </script>
 </body>
 </html>
