@@ -1,0 +1,77 @@
+name: Build and publish desktop apps
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS (dmg)
+            build: npm run dist:mac
+          - os: windows-latest
+            label: Windows (exe)
+            build: npm run dist:win
+          - os: ubuntu-latest
+            label: Linux (AppImage)
+            build: npm run dist:linux
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Version aus dem Release-Tag uebernehmen (v1.2.3 -> 1.2.3), damit
+      # package.json und Release nicht auseinanderlaufen.
+      - name: Sync version with tag
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          node -e "
+            const fs=require('fs');
+            const p=JSON.parse(fs.readFileSync('package.json','utf8'));
+            p.version='$TAG';
+            fs.writeFileSync('package.json', JSON.stringify(p,null,2)+'\n');
+            console.log('Version gesetzt auf', p.version);
+          "
+
+      # electron-builder haengt die Artefakte samt latest*.yml direkt an das
+      # Release. Die yml-Dateien sind die Grundlage der Selbstaktualisierung –
+      # ohne sie findet electron-updater kein Update.
+      - name: Build and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS bleibt unsigniert: ohne Apple-Zertifikat wuerde der Schritt
+          # sonst mit einem Signaturfehler abbrechen.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: ${{ matrix.build }} --publish ${{ github.event_name == 'release' && 'always' || 'never' }}
+
+      - name: Upload artifacts (bei manuellem Lauf)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          path: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.AppImage
+          if-no-files-found: warn

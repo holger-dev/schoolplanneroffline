@@ -1,0 +1,35 @@
+# Abhängigkeiten
+node_modules/
+
+# Build-Ausgaben (electron-builder schreibt nach dist/)
+dist/
+out/
+release/
+*.dmg
+*.pkg
+*.exe
+*.AppImage
+*.deb
+*.snap
+*.zip
+*.blockmap
+
+# Caches
+.cache/
+.electron-builder-cache/
+.parcel-cache/
+
+# Betriebssystem und Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs und lokale Umgebung
+*.log
+npm-debug.log*
+.env
+.env.local
+
+# Hinweis: build/icon.png gehört ins Repo – electron-builder holt sich
+# von dort das App-Symbol (directories.buildResources).

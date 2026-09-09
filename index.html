@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#eef2f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#070d18" media="(prefers-color-scheme: dark)">
+<title>School Planner Offline</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+/* ---------- Farbwelt ----------
+   Dunkel ist die Grundlage; hell wird ueber [data-theme="light"] gesetzt.
+   Welche Variante gilt, entscheidet JavaScript (System / Hell / Dunkel), damit
+   es nur EINE Definition je Palette gibt. */
+:root{
+  color-scheme:dark;
+  --bg:#0f1622; --bg-2:#0b111b; --card:#182231; --card-2:#1d2838; --line:#2c3a4e;
+  --ink:#e9eff8; --muted:#94a5bd; --soft:rgba(148,165,189,.09);
+  --accent:#4cb6ef; --accent-ink:#04121f; --accent-soft:rgba(76,182,239,.13);
+  --ok:#3ddc9a; --ok-soft:rgba(61,220,154,.14);
+  --warn:#e2b33d; --warn-soft:rgba(226,179,61,.10); --warn-ink:#f2d68a; --warn-line:#6b5620;
+  --bad:#f0736c; --bad-soft:rgba(240,115,108,.14);
+  --stage-bg:#14263a; --stage-line:#2f6b96;
+  --note-bg:#221d10;
+  --pre-bg:#0c131d; --pre-ink:#cfe8ff;
+  --shadow:0 1px 2px rgba(0,0,0,.3);
+  --ctl:30px; --fs:13.5px; --pad:13px; --gap:9px; --r:8px;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#eef1f6; --bg-2:#e6eaf2; --card:#ffffff; --card-2:#f8fafd; --line:#d4dce8;
+  --ink:#16202f; --muted:#5a6a83; --soft:rgba(22,32,47,.05);
+  --accent:#1668a8; --accent-ink:#ffffff; --accent-soft:rgba(22,104,168,.09);
+  --ok:#0d7a55; --ok-soft:rgba(13,122,85,.11);
+  --warn:#96661a; --warn-soft:#fbf3e2; --warn-ink:#6b4a08; --warn-line:#d9bd85;
+  --bad:#bf3b33; --bad-soft:rgba(191,59,51,.10);
+  --stage-bg:#f1f7fd; --stage-line:#a9cdec;
+  --note-bg:#fdf8ed;
+  --pre-bg:#f1f4f9; --pre-ink:#14344e;
+  --shadow:0 1px 2px rgba(22,32,47,.07);
+}
+@media (pointer: coarse){ :root{ --ctl:40px; --fs:14.5px; --pad:15px; --gap:11px; } }
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink); font-size:var(--fs);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased; overscroll-behavior-y:none;
+}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+h1,h2,h3{margin:0;line-height:1.25}
+p{margin:0}
+
+/* ---------- Rahmen ---------- */
+.app{max-width:1180px;margin:0 auto;padding:0 18px 24px}
+@media (max-width:759px){ .app{padding-bottom:calc(70px + env(safe-area-inset-bottom))} }
+
+/* Die Kopfzeile ist unter macOS zugleich die Greiffläche zum Verschieben. */
+.topbar{
+  position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;
+  padding:9px 0;background:var(--bg);border-bottom:1px solid var(--line);margin-bottom:14px;
+  -webkit-app-region:drag;
+}
+.topbar button,.topbar input,.topbar select,.topbar .nav{-webkit-app-region:no-drag}
+body.is-mac-app .topbar{padding-top:26px}
+body.is-mac-app .topbar::before{
+  content:"";position:absolute;top:0;left:-18px;right:-18px;height:26px;-webkit-app-region:drag;
+}
+.topbar__title{font-size:.98rem;font-weight:700;letter-spacing:-.01em}
+.topbar__sub{font-size:.75rem;color:var(--muted);margin-top:1px}
+.topbar__spacer{flex:1}
+.back,.icon-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:var(--ctl);height:var(--ctl);border-radius:var(--r);
+  background:var(--card);border:1px solid var(--line);flex:0 0 auto;color:var(--muted);
+}
+.icon-btn:hover,.back:hover{color:var(--ink);border-color:var(--muted)}
+.icon-btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------- Reiter ---------- */
+.nav{display:flex;gap:3px;padding:3px;border-radius:var(--r);background:var(--soft);border:1px solid var(--line)}
+.nav button{
+  display:inline-flex;align-items:center;gap:6px;height:calc(var(--ctl) - 6px);padding:0 11px;
+  border-radius:calc(var(--r) - 2px);font-size:.79rem;font-weight:600;color:var(--muted);position:relative;
+}
+.nav button:hover{color:var(--ink)}
+.nav button[aria-current="true"]{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
+.nav svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.nav .count{margin-left:2px;background:var(--warn);color:var(--bg);border-radius:999px;font-size:.65rem;padding:0 5px;font-weight:800}
+@media (max-width:759px){
+  .nav{position:fixed;left:0;right:0;bottom:0;z-index:30;border-radius:0;border:none;
+       border-top:1px solid var(--line);background:var(--card);gap:0;
+       padding:5px 8px calc(5px + env(safe-area-inset-bottom))}
+  .nav button{flex:1;flex-direction:column;gap:2px;height:auto;padding:6px 0;font-size:.67rem}
+  .nav .count{position:absolute;top:1px;left:50%;margin-left:6px}
+}
+
+/* ---------- Bausteine ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:var(--pad);box-shadow:var(--shadow)}
+.card + .card{margin-top:var(--gap)}
+.section-title{font-size:.69rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}
+.muted{color:var(--muted)}
+.small{font-size:.81rem}
+.row{display:flex;align-items:center;gap:8px}
+.between{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.stack{display:flex;flex-direction:column;gap:var(--gap)}
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  height:var(--ctl);padding:0 14px;border-radius:var(--r);
+  background:var(--card);border:1px solid var(--line);font-size:.83rem;font-weight:600;
+  box-shadow:var(--shadow);white-space:nowrap;
+}
+.btn:hover{border-color:var(--muted)}
+.btn--primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.btn--primary:hover{filter:brightness(1.08)}
+.btn--ghost{background:transparent;box-shadow:none;color:var(--muted)}
+.btn--ghost:hover{color:var(--ink)}
+.btn--danger{color:var(--bad);border-color:var(--bad)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.controls{display:flex;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap}
+.controls .spacer{flex:1}
+
+.field{height:var(--ctl);border-radius:var(--r);border:1px solid var(--line);background:var(--card);padding:0 10px;font-size:.82rem;min-width:200px}
+.field:focus{outline:none;border-color:var(--accent)}
+
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:5px;font-size:.69rem;font-weight:700;white-space:nowrap}
+.badge--planned{background:var(--soft);color:var(--muted)}
+.badge--running{background:var(--accent-soft);color:var(--accent)}
+.badge--done{background:var(--ok-soft);color:var(--ok)}
+.badge--dirty{background:var(--warn-soft);color:var(--warn)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:0 0 auto}
+
+/* ---------- Stundenkarten (Heute) ---------- */
+.lesson{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);
+        border-radius:var(--r);padding:10px 12px;box-shadow:var(--shadow)}
+.lesson:hover{border-color:var(--muted)}
+.lesson--running{border-color:var(--accent)}
+.lesson__top{display:flex;align-items:center;gap:10px}
+.slot{display:inline-flex;align-items:center;justify-content:center;flex-direction:column;
+      min-width:32px;height:32px;border-radius:6px;background:var(--accent-soft);color:var(--accent);
+      font-weight:700;font-size:.88rem;flex:0 0 auto;line-height:1}
+.slot small{font-size:.53rem;opacity:.75;font-weight:600;margin-top:1px}
+.lesson__course{font-size:.71rem;font-weight:700;color:var(--accent)}
+.lesson__title{font-size:.9rem;font-weight:600;margin-top:1px}
+.lesson__meta{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px;font-size:.75rem;color:var(--muted)}
+.bar{height:4px;border-radius:999px;background:var(--soft);overflow:hidden;margin-top:7px}
+.bar > i{display:block;height:100%;background:var(--accent);border-radius:999px;transition:width .25s ease}
+
+/* ---------- Kursansicht: Liste links, Stunden rechts ---------- */
+.course-layout{display:grid;grid-template-columns:210px 1fr;gap:16px;align-items:start}
+@media(max-width:820px){.course-layout{grid-template-columns:1fr}}
+.course-side{display:flex;flex-direction:column;gap:4px;position:sticky;top:64px}
+.course-item{text-align:left;padding:8px 10px;border-radius:var(--r);border:1px solid transparent;color:var(--muted)}
+.course-item:hover{background:var(--soft);color:var(--ink)}
+.course-item[aria-current="true"]{background:var(--card);border-color:var(--line);color:var(--ink);box-shadow:var(--shadow)}
+.course-item b{display:block;font-size:.85rem;font-weight:600}
+.course-item small{display:block;font-size:.71rem;color:var(--muted);margin-top:1px}
+
+.month{margin-bottom:16px}
+.month__label{font-size:.69rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
+              padding:0 2px 6px;position:sticky;top:56px;background:var(--bg);z-index:5}
+.ltable{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+        border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
+.ltable tr{border-bottom:1px solid var(--line);cursor:pointer}
+.ltable tr:last-child{border-bottom:none}
+.ltable tr:hover{background:var(--soft)}
+.ltable tr.is-today{background:var(--accent-soft)}
+.ltable td{padding:7px 10px;font-size:.83rem;vertical-align:middle}
+.ltable .c-date{width:96px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.ltable .c-slot{width:34px;color:var(--muted);text-align:center}
+.ltable .c-title{font-weight:600}
+.ltable .c-state{width:88px;text-align:right}
+.ltable .c-prog{width:64px}
+
+/* ---------- Live-Cockpit ---------- */
+.cockpit{display:grid;grid-template-columns:1.35fr .65fr;gap:var(--gap);align-items:start}
+@media(max-width:900px){.cockpit{grid-template-columns:1fr}}
+.panel{border:1px solid var(--line);border-radius:var(--r);padding:var(--pad);background:var(--card);box-shadow:var(--shadow)}
+.panel--stage{border-color:var(--stage-line);background:var(--stage-bg)}
+.panel--notes{border-color:var(--warn-line);background:var(--note-bg)}
+.panel__label{font-size:.66rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+              display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.panel--stage .panel__label{color:var(--accent)}
+.panel--notes .panel__label{color:var(--warn)}
+.stage__title{font-size:1.02rem;font-weight:700;line-height:1.3}
+.teacher-note{line-height:1.55;font-size:.84rem;color:var(--warn-ink)}
+.fmt{margin:.55em 0;line-height:1.55;color:var(--muted);font-size:.84rem}
+.fmt:first-child{margin-top:.35em}
+pre{margin:.6em 0;padding:9px 11px;border-radius:6px;background:var(--pre-bg);border:1px solid var(--line);
+    overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.79rem;line-height:1.5;color:var(--pre-ink)}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--accent-soft);color:var(--accent);
+     padding:1px 4px;border-radius:4px;font-size:.9em}
+.next{margin-top:10px;padding-top:9px;border-top:1px solid var(--warn-line);font-size:.79rem;color:var(--muted)}
+.next b{display:block;font-size:.64rem;letter-spacing:.08em;text-transform:uppercase;opacity:.8;margin-bottom:2px}
+.next .teacher-note{margin-top:4px;font-size:.79rem;opacity:.92}
+
+/* ---------- Ablaufliste ---------- */
+.step{display:flex;gap:10px;padding:8px 11px;border-radius:var(--r);border:1px solid var(--line);background:var(--card)}
+.step + .step{margin-top:5px}
+.step--current{border-color:var(--accent);background:var(--accent-soft)}
+.step--done{opacity:.55}
+.step__num{width:21px;height:21px;border-radius:5px;background:var(--soft);display:flex;align-items:center;
+           justify-content:center;font-weight:700;font-size:.72rem;flex:0 0 auto;margin-top:1px}
+.step--current .step__num{background:var(--accent);color:var(--accent-ink)}
+.step--done .step__num{background:var(--ok-soft);color:var(--ok)}
+.step__body{flex:1;min-width:0}
+.step__title{font-weight:600;font-size:.85rem}
+.note{margin-top:6px;padding:6px 9px;border-radius:5px;background:var(--warn-soft);border:1px solid var(--warn-line);
+      font-size:.78rem;color:var(--warn-ink);line-height:1.45}
+.note b{display:block;font-size:.62rem;letter-spacing:.07em;text-transform:uppercase;opacity:.85;margin-bottom:2px;color:var(--warn)}
+
+/* ---------- Mitarbeit ---------- */
+.students{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--card);box-shadow:var(--shadow)}
+.student{display:grid;grid-template-columns:minmax(140px,1.1fr) auto auto minmax(90px,.9fr);gap:10px;
+         align-items:center;padding:5px 11px;border-bottom:1px solid var(--line)}
+.student:last-child{border-bottom:none}
+.student:hover{background:var(--soft)}
+@media(max-width:820px){ .student{grid-template-columns:1fr;gap:7px;padding:10px} }
+.student__name{font-weight:600;font-size:.84rem;display:flex;align-items:center;gap:7px;min-width:0}
+.student__name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seg{display:flex;gap:3px;padding:2px;border-radius:6px;background:var(--soft);border:1px solid var(--line)}
+.seg button{height:calc(var(--ctl) - 10px);min-width:29px;padding:0 8px;border-radius:4px;
+            font-weight:600;font-size:.76rem;color:var(--muted);white-space:nowrap}
+.seg button:hover{color:var(--ink)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.seg--status button[aria-pressed="true"].is-excused{background:var(--warn);color:#fff}
+.seg--status button[aria-pressed="true"].is-unexcused{background:var(--bad);color:#fff}
+.grade-select{height:calc(var(--ctl) - 6px);border-radius:6px;border:1px solid var(--line);background:var(--card);
+              padding:0 7px;font-size:.79rem;font-weight:600}
+.no-scale{font-size:.75rem;color:var(--muted);font-style:italic}
+.student__note{height:calc(var(--ctl) - 6px);border-radius:6px;border:1px dashed var(--line);background:transparent;
+               color:var(--muted);text-align:left;padding:0 9px;font-size:.78rem;overflow:hidden;
+               text-overflow:ellipsis;white-space:nowrap}
+.student__note.has{border-style:solid;color:var(--ink);background:var(--soft)}
+.student__note:hover{border-color:var(--muted)}
+
+/* ---------- Abgleich ---------- */
+.kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line);font-size:.83rem}
+.kv:last-child{border-bottom:none}
+.change{display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line);font-size:.81rem}
+.change:last-child{border-bottom:none}
+.conflict{border:1px solid var(--warn-line);background:var(--warn-soft);border-radius:var(--r);padding:var(--pad)}
+.conflict + .conflict{margin-top:var(--gap)}
+.choice{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}
+.choice button{border-radius:6px;border:1px solid var(--line);background:var(--card);padding:8px 10px;text-align:left;line-height:1.35}
+.choice button:hover{border-color:var(--accent)}
+.choice button small{display:block;font-size:.65rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.choice button strong{font-size:.84rem}
+
+/* ---------- Vollbild ---------- */
+.overlay{position:fixed;inset:0;z-index:70;background:var(--bg);display:flex;flex-direction:column;
+         padding:clamp(20px,4vw,52px) clamp(20px,5vw,72px) 0}
+.overlay__meta{font-size:clamp(.76rem,1.3vw,.98rem);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.overlay__title{font-size:clamp(1.6rem,4.2vw,3.2rem);font-weight:750;line-height:1.15;margin-top:.3em}
+.overlay__body{flex:1;overflow-y:auto;margin-top:clamp(12px,2vw,24px);font-size:clamp(.95rem,1.7vw,1.4rem)}
+.overlay__body .fmt{color:var(--ink);font-size:inherit;line-height:1.6}
+.overlay__body pre{font-size:clamp(.8rem,1.3vw,1.05rem)}
+.presbar{display:flex;align-items:center;gap:10px;padding:12px 0 14px;border-top:1px solid var(--line);margin-top:10px}
+.presbar .grow{flex:1}
+
+/* ---------- Sheet & Toast ---------- */
+.sheet-bg{position:fixed;inset:0;background:rgba(6,12,20,.5);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px}
+.sheet{width:100%;max-width:440px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+       padding:var(--pad);box-shadow:0 18px 44px rgba(0,0,0,.3)}
+.sheet textarea{width:100%;min-height:92px;border-radius:6px;border:1px solid var(--line);background:var(--bg);
+                padding:9px;resize:vertical;margin-top:10px;font-size:.84rem}
+.empty{text-align:center;padding:34px 20px;color:var(--muted);font-size:.84rem}
+.empty svg{width:32px;height:32px;stroke:currentColor;fill:none;stroke-width:1.5;opacity:.45;margin-bottom:10px}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:60;background:var(--card);
+       border:1px solid var(--line);border-radius:var(--r);padding:8px 15px;font-weight:600;font-size:.81rem;
+       box-shadow:0 12px 30px rgba(0,0,0,.22);max-width:90vw;text-align:center}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+"use strict";
+
+/* =========================================================================
+   School Planner Offline – Prototyp
+   Zero-Build: nur diese Datei. Alle Daten liegen im localStorage.
+   "Nextcloud" wird lokal simuliert (state.server), damit sich der komplette
+   Workflow inklusive Konflikten ohne Server durchspielen laesst.
+   ========================================================================= */
+
+var KEY = "spo.proto.v1";
+/* Skalen und Status exakt wie in der Nextcloud-App (ParticipationService::SCALES
+   und die scaleOptions/statusOptions in deren App.vue). Andere Werte wuerden
+   beim spaeteren Abgleich verworfen. */
+var GRADES = {
+  "": [],                                       // "Keine Note" – keine Bewertung
+  "scale3": ["+", "+/-", "-"],
+  "scale5": ["++", "+", "+/-", "-", "--"],
+  "note":   ["1", "2", "3", "4", "5", "6"]
+};
+var SCALE_LABEL = { "":"Keine Note", "scale3":"Skala 1–3", "scale5":"Skala 1–5", "note":"Note 1–6" };
+var STATUS = [
+  { id:"present",   label:"Anwesend",     short:"Da",     cls:"" },
+  { id:"excused",   label:"Entschuldigt", short:"Entsch.",cls:"is-excused" },
+  { id:"unexcused", label:"Unentschuldigt", short:"Unentsch.", cls:"is-unexcused" }
+];
+function gradesFor(scale){ return GRADES[scale] || []; }
+
+/* ---------- Helfer ---------- */
+function now(){ return new Date().toISOString(); }
+function iso(d){ return d.toISOString().slice(0,10); }
+function addDays(d,n){ var x=new Date(d.getTime()); x.setDate(x.getDate()+n); return x; }
+function deLong(dstr){
+  var d=new Date(dstr+"T12:00:00");
+  return d.toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"long"});
+}
+function deShort(dstr){
+  var d=new Date(dstr+"T12:00:00");
+  return d.toLocaleDateString("de-DE",{weekday:"short",day:"2-digit",month:"2-digit"});
+}
+function relTime(t){
+  if(!t) return "noch nie";
+  var diff=(Date.now()-new Date(t).getTime())/1000;
+  if(diff<60) return "gerade eben";
+  if(diff<3600) return "vor "+Math.floor(diff/60)+" Min.";
+  if(diff<86400) return "vor "+Math.floor(diff/3600)+" Std.";
+  return "am "+new Date(t).toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+}
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+/* Sehr kleiner Markdown-Renderer: Codebloecke, fett, Inline-Code, Absaetze. */
+function fmt(text){
+  if(!text) return "";
+  var parts = String(text).split("```"), out = "";
+  for(var i=0;i<parts.length;i++){
+    if(i%2===1){
+      out += '<pre>'+esc(parts[i].replace(/^[a-zA-Z0-9]*\n/,"").replace(/\n$/,""))+'</pre>';
+    } else {
+      var chunk = parts[i].replace(/^\n+|\n+$/g,"");
+      if(!chunk) continue;
+      out += esc(chunk)
+        .replace(/\*\*(.+?)\*\*/g,"<b>$1</b>")
+        .replace(/`([^`]+)`/g,"<code>$1</code>")
+        .split(/\n{2,}/)
+        .map(function(p){ return '<p class="fmt">'+p.replace(/\n/g,"<br>")+'</p>'; })
+        .join("");
+    }
+  }
+  return out;
+}
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+function pkey(lessonId, studentId){ return lessonId+":"+studentId; }
+
+/* ---------- Demodaten ---------- */
+function seed(){
+  var t = new Date();
+  /* Bewusst alle vier Skalen im Datenbestand, damit sich jede Einstellung testen laesst. */
+  var courses = [
+    { id:1, name:"Informatik 9b",  scale:"scale5" },
+    { id:2, name:"Informatik 7a",  scale:"scale3" },
+    { id:3, name:"Info-LK Q1",     scale:"note" },
+    { id:4, name:"Vertretung 8c",  scale:"" }
+  ];
+  var namesA = ["Amelie Berg","Ben Kowalski","Clara Voss","David Ünal","Emma Reinhardt","Finn Brenner","Greta Lindqvist","Hakan Demir","Ida Sommer","Jonas Weiß","Karla Mendes","Leon Hartmann"];
+  var namesB = ["Alina Krause","Bela Nowak","Cem Yildiz","Dana Fischer","Elias Roth","Frida Baumann","Gustav Pohl","Hanna Neumann","Ilyas Aydin","Jette Kramer"];
+  var namesC = ["Aaron Steinbach","Bianca Lorenz","Cedric Wagner","Delia Mahmoud","Emil Konrad","Fenja Ostermann"];
+  var namesD = ["Jara Petersen","Kilian Beck","Lotte Ahrens","Milo Farkas","Nina Sander","Oskar Timm","Pia Wendt","Ruben Haas"];
+  var students=[], sid=1;
+  [ [1,namesA],[2,namesB],[3,namesC],[4,namesD] ].forEach(function(pair){
+    pair[1].forEach(function(n){ students.push({ id:sid++, courseId:pair[0], name:n }); });
+  });
+
+  var lessons=[], items=[], lid=1, iid=1;
+  function lesson(courseId, date, slot, title, goal, steps){
+    lessons.push({
+      id:lid, courseId:courseId, date:date, slot:slot, title:title, goal:goal,
+      status:"planned", currentItemId:null, updatedAt:now(), syncedAt:now(), dirty:false
+    });
+    steps.forEach(function(s,i){
+      items.push({
+        id:iid++, lessonId:lid, sortOrder:i, title:s[0], description:s[1], teacherNote:s[2]||"",
+        published:false, updatedAt:now(), syncedAt:now(), dirty:false
+      });
+    });
+    lid++;
+  }
+
+  var d0=iso(t), dm1=iso(addDays(t,-1)), dp1=iso(addDays(t,1)), dp2=iso(addDays(t,2)), dp7=iso(addDays(t,7));
+
+  lesson(1, d0, 1, "Schleifen: while", "Die Klasse erklärt den Unterschied zwischen for und while.", [
+    ["Einstieg: Zahlenraten", "Wir spielen kurz Zahlenraten. Wie oft musst du raten?\n\nÜberlegt zu zweit: Wann weiß man vorher, wie oft etwas wiederholt wird – und wann nicht?", "Nur 5 Minuten. Ergebnisse mündlich sammeln, nicht anschreiben."],
+    ["Input: while-Schleife", "Eine while-Schleife läuft, solange eine Bedingung wahr ist.\n\n```\nzahl = 0\nwhile zahl < 5:\n    print(zahl)\n    zahl = zahl + 1\n```", "Endlosschleife absichtlich vorführen – Strg+C zeigen!"],
+    ["Arbeitsauftrag 1", "Schreibt ein Programm, das so lange nach einer Zahl fragt, bis die richtige geraten wurde.\n\nGeschafft, wenn: das Programm bei einem Treffer stoppt und gratuliert.", "Schwache Gruppe: Gerüst an der Tafel vorgeben."],
+    ["Sicherung", "Wir vergleichen zwei Lösungen und halten fest, wann for und wann while passt.", ""]
+  ]);
+  lesson(1, d0, 2, "Schleifen: Übungsstunde", "Sicherung durch eigenständiges Üben.", [
+    ["Wiederholung", "Kurzes Quiz zu while und for.", "Nur mündlich, maximal 5 Minuten."],
+    ["Arbeitsauftrag 2", "Baut das Zahlenraten so um, dass es maximal 5 Versuche gibt.", ""],
+    ["Schon fertig?", "Zusatz: Gib nach jedem Versuch aus, ob die gesuchte Zahl größer oder kleiner ist.", ""]
+  ]);
+  lesson(2, d0, 4, "Was ist ein Algorithmus?", "Die Klasse beschreibt einen Alltagsablauf als Schrittfolge.", [
+    ["Einstieg: Zähneputzen", "Beschreibt Zähneputzen so genau, dass ein Roboter es könnte.", "Der Klassiker – Lachen einplanen, aber nach 8 Minuten abbrechen."],
+    ["Begriff sichern", "Ein Algorithmus ist eine eindeutige, endliche Folge von Schritten.", ""],
+    ["Arbeitsauftrag", "Schreibt einen Algorithmus für euren Schulweg. Mindestens 8 Schritte.", "Heft einsammeln – zählt als kleine Leistung."]
+  ]);
+  lesson(4, d0, 5, "Vertretung: Medienrecht", "Kurzer Impuls ohne Bewertung.", [
+    ["Einstieg", "Wem gehört ein Foto, das du von einer Freundin machst?", "Kurs ohne Notengebung – nur Anwesenheit erfassen."],
+    ["Fallbeispiele", "Drei kurze Fälle in Partnerarbeit besprechen.", ""]
+  ]);
+  lesson(1, dm1, 3, "Einstieg Python", "Erstes lauffähiges Programm.", [
+    ["Setup", "Thonny öffnen, erstes print() ausprobieren.", ""],
+    ["Variablen", "Namen für Werte vergeben.", ""]
+  ]);
+  lesson(3, dp1, 2, "Objektorientierung: Klassen", "Die Lernenden erklären den Unterschied zwischen Klasse und Objekt.", [
+    ["Wiederholung Funktionen", "Kurzer Rückblick auf Parameter und Rückgabewerte.", ""],
+    ["Input: Klassen", "Eine Klasse ist der Bauplan, ein Objekt die konkrete Ausprägung.", "Analogie Keksausstecher verwenden – kommt immer gut an."],
+    ["Arbeitsauftrag", "Modelliert die Klasse Konto mit einzahlen() und abheben().", ""]
+  ]);
+  lesson(2, dp2, 1, "Algorithmen im Alltag", "Beispiele aus der Lebenswelt sammeln.", [
+    ["Sammlung", "Wo begegnen euch Algorithmen?", ""],
+    ["Gruppenarbeit", "Erstellt ein Plakat zu einem Beispiel.", "Plakate für die Ausstellung aufheben."]
+  ]);
+  lesson(1, dp7, 1, "Listen", "Mehrere Werte gemeinsam verwalten.", [
+    ["Einstieg", "Wie speichert man 30 Namen?", ""],
+    ["Input: Listen", "Zugriff über den Index, beginnend bei 0.", ""]
+  ]);
+
+  return { courses:courses, students:students, lessons:lessons, items:items, participation:{} };
+}
+
+/* ---------- Zustand ---------- */
+var state = null;
+var ui = {
+  view:"today", lessonId:null, tab:"flow", sheet:null, toast:null, toastTimer:null,
+  fullscreen:false, courseId:null, courseFilter:"upcoming", courseSearch:"", searchFocus:false
+};
+
+/* ---------- Erscheinungsbild: System / Hell / Dunkel ---------- */
+var THEME_KEY = "spo.theme";
+var themePref = "system";
+function systemDark(){
+  return !(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+}
+function applyTheme(){
+  var resolved = themePref === "system" ? (systemDark() ? "dark" : "light") : themePref;
+  document.documentElement.setAttribute("data-theme", resolved);
+}
+function initTheme(){
+  try{ themePref = localStorage.getItem(THEME_KEY) || "system"; }catch(e){ themePref = "system"; }
+  applyTheme();
+  if(window.matchMedia){
+    var mq = window.matchMedia("(prefers-color-scheme: light)");
+    var onChange = function(){ if(themePref==="system") applyTheme(); };
+    if(mq.addEventListener) mq.addEventListener("change", onChange);
+    else if(mq.addListener) mq.addListener(onChange);
+  }
+}
+function cycleTheme(){
+  themePref = themePref==="system" ? "light" : themePref==="light" ? "dark" : "system";
+  try{ localStorage.setItem(THEME_KEY, themePref); }catch(e){}
+  applyTheme();
+  toast({ system:"Erscheinungsbild folgt dem System", light:"Helles Erscheinungsbild", dark:"Dunkles Erscheinungsbild" }[themePref]);
+}
+var THEME_ICON = {
+  system: '<circle cx="12" cy="12" r="8"/><path d="M12 4v16" /><path d="M12 4a8 8 0 0 1 0 16" fill="currentColor" stroke="none"/>',
+  light:  '<circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
+  dark:   '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>'
+};
+
+function freshState(){
+  var s = seed();
+  return {
+    lastSync: null,
+    local: { lessons: clone(s.lessons), items: clone(s.items), participation:{} },
+    server: { lessons: clone(s.lessons), items: clone(s.items), participation:{} },
+    meta: { courses:s.courses, students:s.students },
+    conflicts: [],
+    log: []
+  };
+}
+function load(){
+  try{
+    var raw = localStorage.getItem(KEY);
+    if(raw){ var p=JSON.parse(raw); if(p && p.local && p.meta) return p; }
+  }catch(e){}
+  return freshState();
+}
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){}
+}
+
+/* ---------- Zugriff ---------- */
+function course(id){ return state.meta.courses.filter(function(c){ return c.id===id; })[0]; }
+function lesson(id){ return state.local.lessons.filter(function(l){ return l.id===id; })[0]; }
+function itemsOf(id){
+  return state.local.items.filter(function(i){ return i.lessonId===id; })
+    .sort(function(a,b){ return a.sortOrder-b.sortOrder; });
+}
+function studentsOf(courseId){ return state.meta.students.filter(function(s){ return s.courseId===courseId; }); }
+function part(lessonId, studentId){ return state.local.participation[pkey(lessonId,studentId)] || null; }
+
+function touchLesson(l){ l.updatedAt = now(); l.dirty = true; save(); }
+function touchItem(i){ i.updatedAt = now(); i.dirty = true; save(); }
+function setPart(lessonId, studentId, patch){
+  var k = pkey(lessonId, studentId);
+  var cur = state.local.participation[k] || { lessonId:lessonId, studentId:studentId, status:"", grade:"", note:"", syncedAt:null };
+  for(var p in patch){ cur[p]=patch[p]; }
+  cur.updatedAt = now();
+  cur.dirty = true;
+  state.local.participation[k] = cur;
+  save();
+}
+
+/* ---------- Dirty-Erkennung ----------
+   Bewusst ein Flag und kein Zeitstempelvergleich: Geht die Uhr des Servers vor,
+   wuerden lokale Aenderungen sonst als "aelter" gelten und still nie uebertragen.
+   Zeitstempel dienen nur der Konflikterkennung – und dort werden ausschliesslich
+   Serverzeiten miteinander verglichen (syncedAt ist die Serverzeit des letzten
+   Abgleichs), also ohne jeden Bezug zur Geraeteuhr. */
+function isDirty(rec){ return !!rec.dirty; }
+function pendingChanges(){
+  var out=[];
+  state.local.lessons.forEach(function(l){ if(isDirty(l)) out.push({type:"lesson",id:l.id,label:"Stundenstatus – "+l.title}); });
+  state.local.items.forEach(function(i){ if(isDirty(i)) out.push({type:"item",id:i.id,label:"Freigabe – "+i.title}); });
+  Object.keys(state.local.participation).forEach(function(k){
+    var p=state.local.participation[k];
+    if(isDirty(p)){
+      var st=state.meta.students.filter(function(s){ return s.id===p.studentId; })[0];
+      out.push({type:"participation",id:k,label:"Mitarbeit – "+(st?st.name:"?")});
+    }
+  });
+  return out;
+}
+
+/* ---------- Sync ---------- */
+function pull(){
+  var added=0, updated=0, conflicts=0;
+  function mergeList(listName, stateFields){
+    state.server[listName].forEach(function(srv){
+      var loc = state.local[listName].filter(function(x){ return x.id===srv.id; })[0];
+      if(!loc){ state.local[listName].push(clone(srv)); added++; return; }
+      var locDirty = isDirty(loc);
+      var srvNewer = loc.syncedAt && srv.updatedAt > loc.syncedAt;
+      if(locDirty && srvNewer){
+        registerConflict(listName, loc, srv, stateFields); conflicts++; return;
+      }
+      if(srvNewer || !locDirty){
+        var changed=false;
+        for(var f in srv){
+          if(f==="syncedAt" || f==="dirty") continue;
+          if(JSON.stringify(loc[f])!==JSON.stringify(srv[f])){ loc[f]=clone(srv[f]); changed=true; }
+        }
+        loc.syncedAt = srv.updatedAt;
+        loc.dirty = false;
+        if(changed) updated++;
+      }
+    });
+  }
+  mergeList("lessons", ["status","currentItemId"]);
+  mergeList("items", ["published"]);
+
+  Object.keys(state.server.participation).forEach(function(k){
+    var srv = state.server.participation[k];
+    var loc = state.local.participation[k];
+    if(!loc){ state.local.participation[k]=clone(srv); added++; return; }
+    var locDirty = isDirty(loc);
+    var srvNewer = loc.syncedAt && srv.updatedAt > loc.syncedAt;
+    if(locDirty && srvNewer){ registerConflict("participation", loc, srv, ["status","grade","note"]); conflicts++; return; }
+    if(srvNewer || !locDirty){
+      loc.status=srv.status; loc.grade=srv.grade; loc.note=srv.note;
+      loc.updatedAt=srv.updatedAt; loc.syncedAt=srv.updatedAt; loc.dirty=false; updated++;
+    }
+  });
+
+  state.lastSync = now();
+  save();
+  return { added:added, updated:updated, conflicts:conflicts };
+}
+
+function push(){
+  var sent=0, conflicts=0;
+  function pushList(listName, fields){
+    state.local[listName].forEach(function(loc){
+      if(!isDirty(loc)) return;
+      var srv = state.server[listName].filter(function(x){ return x.id===loc.id; })[0];
+      if(!srv) return;
+      if(loc.syncedAt && srv.updatedAt > loc.syncedAt){
+        registerConflict(listName, loc, srv, fields); conflicts++; return;
+      }
+      fields.forEach(function(f){ srv[f]=clone(loc[f]); });
+      srv.updatedAt = loc.updatedAt;
+      loc.syncedAt = loc.updatedAt;
+      loc.dirty = false;
+      sent++;
+    });
+  }
+  pushList("lessons", ["status","currentItemId"]);
+  pushList("items", ["published"]);
+
+  Object.keys(state.local.participation).forEach(function(k){
+    var loc = state.local.participation[k];
+    if(!isDirty(loc)) return;
+    var srv = state.server.participation[k];
+    if(srv && loc.syncedAt && srv.updatedAt > loc.syncedAt){
+      registerConflict("participation", loc, srv, ["status","grade","note"]); conflicts++; return;
+    }
+    state.server.participation[k] = { lessonId:loc.lessonId, studentId:loc.studentId, status:loc.status, grade:loc.grade, note:loc.note, updatedAt:loc.updatedAt };
+    loc.syncedAt = loc.updatedAt;
+    loc.dirty = false;
+    sent++;
+  });
+
+  state.lastSync = now();
+  save();
+  return { sent:sent, conflicts:conflicts };
+}
+
+function registerConflict(entity, loc, srv, fields){
+  var id = entity+":"+(loc.id!=null?loc.id:pkey(loc.lessonId,loc.studentId));
+  if(state.conflicts.some(function(c){ return c.id===id; })) return;
+  state.conflicts.push({
+    id:id, entity:entity, fields:fields,
+    label:conflictLabel(entity, loc),
+    mine:describe(entity, loc, fields), theirs:describe(entity, srv, fields),
+    mineAt:loc.updatedAt, theirsAt:srv.updatedAt
+  });
+}
+function conflictLabel(entity, rec){
+  if(entity==="participation"){
+    var st=state.meta.students.filter(function(s){ return s.id===rec.studentId; })[0];
+    var l=lesson(rec.lessonId);
+    return (st?st.name:"?")+" · "+(l?l.title:"Stunde");
+  }
+  if(entity==="lessons"){ return "Stundenstatus · "+rec.title; }
+  return "Freigabe · "+rec.title;
+}
+function describe(entity, rec, fields){
+  if(entity==="participation"){
+    var s=STATUS.filter(function(x){ return x.id===rec.status; })[0];
+    return (s?s.label:"–")+(rec.grade?" · Note "+rec.grade:"")+(rec.note?" · Notiz":"");
+  }
+  if(entity==="lessons"){
+    return { planned:"geplant", running:"läuft", done:"abgeschlossen" }[rec.status] || rec.status;
+  }
+  return rec.published ? "freigegeben" : "nicht freigegeben";
+}
+function resolveConflict(cid, take){
+  var c = state.conflicts.filter(function(x){ return x.id===cid; })[0];
+  if(!c) return;
+  var parts = c.id.split(":");
+  if(c.entity==="participation"){
+    var k = parts[1]+":"+parts[2];
+    var loc = state.local.participation[k], srv = state.server.participation[k];
+    if(take==="mine"){ loc.updatedAt=now(); loc.syncedAt=srv.updatedAt; loc.dirty=true; }
+    else { c.fields.forEach(function(f){ loc[f]=srv[f]; }); loc.updatedAt=srv.updatedAt; loc.syncedAt=srv.updatedAt; loc.dirty=false; }
+  } else {
+    var id = parseInt(parts[1],10);
+    var l = state.local[c.entity].filter(function(x){ return x.id===id; })[0];
+    var s = state.server[c.entity].filter(function(x){ return x.id===id; })[0];
+    if(take==="mine"){ l.updatedAt=now(); l.syncedAt=s.updatedAt; l.dirty=true; }
+    else { c.fields.forEach(function(f){ l[f]=s[f]; }); l.updatedAt=s.updatedAt; l.syncedAt=s.updatedAt; l.dirty=false; }
+  }
+  state.conflicts = state.conflicts.filter(function(x){ return x.id!==cid; });
+  save(); render();
+}
+
+/* Simuliert eine Aenderung "am Rechner in der Nextcloud". */
+function simulateServerEdit(){
+  var todays = state.server.lessons.filter(function(l){ return l.date===iso(new Date()); });
+  var target = todays[0] || state.server.lessons[0];
+  if(!target) return "Keine Stunde vorhanden.";
+  var studs = studentsOf(target.courseId);
+  var st = studs[0];
+  var k = pkey(target.id, st.id);
+  state.server.participation[k] = { lessonId:target.id, studentId:st.id, status:"excused", grade:"", note:"Krankmeldung im Sekretariat", updatedAt:now() };
+  var it = state.server.items.filter(function(i){ return i.lessonId===target.id; })[0];
+  if(it){ it.published = !it.published; it.updatedAt = now(); }
+  save();
+  return "In der Nextcloud wurden „"+st.name+"“ und ein Element von „"+target.title+"“ geändert.";
+}
+
+/* ---------- Aktionen ---------- */
+function startLesson(id){
+  var l = lesson(id), its = itemsOf(id);
+  l.status = "running";
+  if(!l.currentItemId && its.length) l.currentItemId = its[0].id;
+  touchLesson(l); render();
+}
+function nextStep(id){
+  var l = lesson(id), its = itemsOf(id);
+  var idx = its.findIndex(function(i){ return i.id===l.currentItemId; });
+  var cur = its[idx];
+  if(cur && !cur.published){ cur.published = true; touchItem(cur); }
+  if(idx < its.length-1){ l.currentItemId = its[idx+1].id; }
+  else { l.status = "done"; }
+  touchLesson(l); render();
+}
+function prevStep(id){
+  var l = lesson(id), its = itemsOf(id);
+  var idx = its.findIndex(function(i){ return i.id===l.currentItemId; });
+  if(idx>0){ l.currentItemId = its[idx-1].id; l.status="running"; touchLesson(l); render(); }
+}
+function jumpTo(id, itemId){
+  var l = lesson(id); l.currentItemId=itemId; if(l.status==="planned") l.status="running";
+  touchLesson(l); render();
+}
+function togglePublish(itemId){
+  var it = state.local.items.filter(function(i){ return i.id===itemId; })[0];
+  it.published = !it.published; touchItem(it); render();
+}
+function finishLesson(id){
+  var l = lesson(id); l.status="done"; touchLesson(l); render();
+  toast("Stunde abgeschlossen");
+}
+
+/* =========================================================================
+   Praesentation
+   Zwei Wege, je nach Aufbau im Raum:
+   a) Zweites Fenster (Laptop am Beamer): eigenes Browserfenster, das auf den
+      zweiten Bildschirm gezogen wird. Es wird direkt ueber das DOM aktualisiert
+      und braucht deshalb weder Netz noch BroadcastChannel – funktioniert auch,
+      wenn die Datei nur lokal geoeffnet wurde.
+   b) Vollbild (Tablet gespiegelt): dieselbe Ansicht als Overlay, mit einer
+      schmalen Steuerleiste. Lehrerhinweise erscheinen dort bewusst NICHT –
+      sie waeren sonst an die Wand projiziert.
+   ========================================================================= */
+var presentWin = null;
+
+var PRESENT_HTML = '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">'
+  + '<title>Präsentation</title><style>'
+  + ':root{color-scheme:light dark;--pbg:#070d18;--pink:#e8eefb;--pmuted:#c9d7ef;'
+  + '--pacc:#38bdf8;--pline:#26334d;--ppre:rgba(3,7,15,.8);--pprei:#cfe8ff;--pfoot:#93a3c0}'
+  + '@media(prefers-color-scheme:light){:root{--pbg:#ffffff;--pink:#0f1a2c;--pmuted:#26364f;'
+  + '--pacc:#0c7cc0;--pline:#d8e0ec;--ppre:#f2f5fa;--pprei:#123049;--pfoot:#5d6f8c}}'
+  + 'html,body{height:100%;margin:0}'
+  + 'body{background:var(--pbg);color:var(--pink);'
+  + 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;'
+  + 'display:flex;flex-direction:column;padding:5vh 6vw 0;box-sizing:border-box}'
+  + '#pCourse{font-size:1.15vw;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--pacc)}'
+  + '#pTitle{font-size:4.2vw;font-weight:800;line-height:1.12;margin:.3em 0 0}'
+  + '#pBody{flex:1;overflow-y:auto;margin-top:3vh;font-size:1.9vw;color:var(--pmuted)}'
+  + '.fmt{margin:.6em 0;line-height:1.6}'
+  + 'pre{margin:.7em 0;padding:.8em 1em;border-radius:12px;background:var(--ppre);border:1px solid var(--pline);'
+  + 'overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:1.5vw;line-height:1.5;color:var(--pprei)}'
+  + 'code{font-family:ui-monospace,Menlo,Consolas,monospace;background:rgba(56,189,248,.14);color:var(--pacc);padding:.05em .3em;border-radius:5px}'
+  + 'b{color:var(--pink)}'
+  + 'footer{padding:2.5vh 0;border-top:1px solid var(--pline);display:flex;align-items:center;gap:1.5vw;font-size:1.1vw;color:var(--pfoot)}'
+  + '#pTrack{flex:1;height:6px;border-radius:999px;background:var(--pline);overflow:hidden}'
+  + '#pBar{display:block;height:100%;width:0;background:var(--pacc);transition:width .3s ease}'
+  + '</style></head><body>'
+  + '<div id="pCourse"></div><h1 id="pTitle"></h1><div id="pBody"></div>'
+  + '<footer><span id="pStep"></span><span id="pTrack"><i id="pBar"></i></span></footer>'
+  + '</body></html>';
+
+function presenterOpen(){ return !!(presentWin && !presentWin.closed); }
+
+function stageData(l){
+  var its = itemsOf(l.id);
+  var idx = its.findIndex(function(i){ return i.id===l.currentItemId; });
+  var cur = idx>=0 ? its[idx] : its[0];
+  return {
+    courseName: course(l.courseId).name, lessonTitle: l.title,
+    item: cur || null, step: (idx<0?0:idx)+1, total: its.length,
+    next: (idx>=0 && idx<its.length-1) ? its[idx+1] : null,
+    done: l.status==="done"
+  };
+}
+
+function openPresenter(){
+  var l = lesson(ui.lessonId); if(!l) return;
+  presentWin = window.open("", "spoPresent", "width=1280,height=800");
+  if(!presentWin){ toast("Das Fenster wurde blockiert – bitte Pop-ups für diese Seite erlauben."); return; }
+  presentWin.document.open();
+  presentWin.document.write(PRESENT_HTML);
+  presentWin.document.close();
+  updatePresenter();
+  toast("Fenster auf den Beamer-Bildschirm ziehen");
+}
+function closePresenter(){
+  if(presenterOpen()) presentWin.close();
+  presentWin = null; render();
+}
+function updatePresenter(){
+  if(!presenterOpen()) return;
+  var l = lesson(ui.lessonId);
+  if(!l){ return; }
+  var s = stageData(l), d = presentWin.document;
+  function set(id, html){ var e=d.getElementById(id); if(e) e.innerHTML = html; }
+  set("pCourse", esc(s.courseName)+" &middot; "+esc(s.lessonTitle));
+  set("pTitle", s.done ? "Das war die Stunde" : esc(s.item ? s.item.title : ""));
+  set("pBody", s.done ? "" : fmt(s.item ? s.item.description : ""));
+  set("pStep", s.done ? "abgeschlossen" : "Schritt "+s.step+" von "+s.total);
+  var bar = d.getElementById("pBar");
+  if(bar) bar.style.width = (s.done ? 100 : Math.round(s.step/s.total*100))+"%";
+}
+
+function enterFullscreen(){
+  ui.fullscreen = true;
+  if(document.documentElement.requestFullscreen){
+    document.documentElement.requestFullscreen().catch(function(){});
+  }
+  render();
+}
+function exitFullscreen(){
+  ui.fullscreen = false;
+  if(document.fullscreenElement && document.exitFullscreen){ document.exitFullscreen().catch(function(){}); }
+  render();
+}
+
+function toast(msg){
+  ui.toast = msg;
+  if(ui.toastTimer) clearTimeout(ui.toastTimer);
+  ui.toastTimer = setTimeout(function(){ ui.toast=null; render(); }, 2600);
+  render();
+}
+
+/* =========================================================================
+   Ansichten
+   ========================================================================= */
+function lessonProgress(l){
+  var its = itemsOf(l.id);
+  if(!its.length) return 0;
+  if(l.status==="done") return 1;
+  var idx = its.findIndex(function(i){ return i.id===l.currentItemId; });
+  return idx<0 ? 0 : idx/its.length;
+}
+function partStats(l){
+  var studs = studentsOf(l.courseId);
+  var scale = course(l.courseId).scale;
+  var graded=0, absent=0, marked=0;
+  studs.forEach(function(s){
+    var p = part(l.id, s.id);
+    if(!p) return;
+    if(p.grade) graded++;
+    if(p.status) marked++;
+    if(p.status==="excused" || p.status==="unexcused") absent++;
+  });
+  return { total:studs.length, graded:graded, absent:absent, marked:marked, scale:scale, grading:gradesFor(scale).length>0 };
+}
+function statusBadge(l){
+  if(l.status==="running") return '<span class="badge badge--running">läuft</span>';
+  if(l.status==="done") return '<span class="badge badge--done">fertig</span>';
+  return '<span class="badge badge--planned">geplant</span>';
+}
+function lessonCard(l){
+  var c = course(l.courseId), st = partStats(l), prog = Math.round(lessonProgress(l)*100);
+  return ''
+    + '<button class="lesson '+(l.status==="running"?"lesson--running":"")+'" data-open="'+l.id+'">'
+    +   '<div class="lesson__top">'
+    +     '<div class="slot">'+l.slot+'<small>Std</small></div>'
+    +     '<div style="min-width:0;flex:1">'
+    +       '<div class="lesson__course">'+esc(c.name)+'</div>'
+    +       '<div class="lesson__title">'+esc(l.title)+'</div>'
+    +     '</div>'
+    +     statusBadge(l)
+    +   '</div>'
+    +   '<div class="bar"><i style="width:'+prog+'%"></i></div>'
+    +   '<div class="lesson__meta">'
+    +     '<span>'+itemsOf(l.id).length+' Schritte</span>'
+    +     '<span>·</span><span>'+(st.grading ? "Bewertet "+st.graded : "Erfasst "+st.marked)+'/'+st.total+'</span>'
+    +     (st.absent? '<span>·</span><span style="color:var(--bad)">'+st.absent+' fehlen</span>':'')
+    +   '</div>'
+    + '</button>';
+}
+
+function viewToday(){
+  var today = iso(new Date());
+  var list = state.local.lessons.filter(function(l){ return l.date===today; })
+    .sort(function(a,b){ return a.slot-b.slot; });
+  var html = '<div class="section-title">'+deLong(today)+'</div>';
+  if(!list.length){
+    html += '<div class="empty"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg><p>Heute keine Stunden geplant.</p></div>';
+  } else {
+    html += '<div class="stack">'+list.map(lessonCard).join("")+'</div>';
+  }
+  var upcoming = state.local.lessons.filter(function(l){ return l.date>today; })
+    .sort(function(a,b){ return a.date===b.date ? a.slot-b.slot : (a.date<b.date?-1:1); }).slice(0,3);
+  if(upcoming.length){
+    html += '<div class="section-title">Als Nächstes</div><div class="stack">';
+    html += upcoming.map(function(l){
+      var c=course(l.courseId);
+      return '<button class="lesson" data-open="'+l.id+'"><div class="lesson__top">'
+        + '<div class="slot">'+l.slot+'<small>Std</small></div>'
+        + '<div style="min-width:0;flex:1"><div class="lesson__course">'+esc(c.name)+' · '+deShort(l.date)+'</div>'
+        + '<div class="lesson__title">'+esc(l.title)+'</div></div>'+statusBadge(l)+'</div></button>';
+    }).join("");
+    html += '</div>';
+  }
+  return html;
+}
+
+function monthLabel(dstr){
+  return new Date(dstr+"T12:00:00").toLocaleDateString("de-DE",{month:"long",year:"numeric"});
+}
+
+/* Kursansicht: links die Kurse, rechts eine kompakte Stundentabelle.
+   Voreingestellt sind die kommenden Stunden – ein Kurs mit 30 Terminen wäre
+   als vollständige Liste unbrauchbar. */
+function viewCourses(){
+  var today = iso(new Date());
+  if(!ui.courseId || !course(ui.courseId)) ui.courseId = state.meta.courses[0] && state.meta.courses[0].id;
+  var c = course(ui.courseId);
+  if(!c) return '<div class="empty">Keine Kurse vorhanden.</div>';
+
+  var side = state.meta.courses.map(function(x){
+    var n = state.local.lessons.filter(function(l){ return l.courseId===x.id; }).length;
+    return '<button class="course-item" aria-current="'+(x.id===ui.courseId)+'" data-course="'+x.id+'">'
+      + '<b>'+esc(x.name)+'</b><small>'+n+' Stunden · '+studentsOf(x.id).length+' SuS · '+SCALE_LABEL[x.scale]+'</small></button>';
+  }).join("");
+
+  var all = state.local.lessons.filter(function(l){ return l.courseId===c.id; });
+  var q = ui.courseSearch.trim().toLowerCase();
+  var list = all.filter(function(l){
+    if(ui.courseFilter==="upcoming" && l.date < today) return false;
+    if(ui.courseFilter==="open" && l.status==="done") return false;
+    if(q && (l.title+" "+(l.goal||"")).toLowerCase().indexOf(q)<0) return false;
+    return true;
+  }).sort(function(a,b){ return a.date===b.date ? a.slot-b.slot : (a.date<b.date?-1:1); });
+
+  function chip(id,label,n){
+    return '<button class="btn '+(ui.courseFilter===id?"btn--primary":"btn--ghost")+'" data-cfilter="'+id+'">'+label+' '+n+'</button>';
+  }
+  var toolbar = '<div class="toolbar">'
+    + chip("upcoming","Kommende", all.filter(function(l){ return l.date>=today; }).length)
+    + chip("open","Offen", all.filter(function(l){ return l.status!=="done"; }).length)
+    + chip("all","Alle", all.length)
+    + '<div style="flex:1"></div>'
+    + '<input id="courseSearch" class="field" type="search" placeholder="Stunde suchen …" value="'+esc(ui.courseSearch)+'">'
+    + '</div>';
+
+  var main;
+  if(!list.length){
+    main = '<div class="empty">Keine Stunden in dieser Auswahl.</div>';
+  } else {
+    var months = [], seen = {};
+    list.forEach(function(l){
+      var m = l.date.slice(0,7);
+      if(!seen[m]){ seen[m] = { key:m, label:monthLabel(l.date), rows:[] }; months.push(seen[m]); }
+      seen[m].rows.push(l);
+    });
+    main = months.map(function(m){
+      var rows = m.rows.map(function(l){
+        var prog = Math.round(lessonProgress(l)*100);
+        return '<tr class="'+(l.date===today?"is-today":"")+'" data-open="'+l.id+'">'
+          + '<td class="c-date">'+deShort(l.date)+(l.date===today?' · heute':'')+'</td>'
+          + '<td class="c-slot">'+l.slot+'.</td>'
+          + '<td class="c-title">'+esc(l.title)+'</td>'
+          + '<td class="c-prog"><div class="bar" style="margin:0"><i style="width:'+prog+'%"></i></div></td>'
+          + '<td class="c-state">'+statusBadge(l)+'</td>'
+          + '</tr>';
+      }).join("");
+      return '<div class="month"><div class="month__label">'+m.label+' · '+m.rows.length+'</div>'
+        + '<table class="ltable"><tbody>'+rows+'</tbody></table></div>';
+    }).join("");
+  }
+
+  return '<div class="course-layout"><aside class="course-side">'+side+'</aside>'
+    + '<div class="course-main">'+toolbar+main+'</div></div>';
+}
+
+function viewLesson(){
+  var l = lesson(ui.lessonId);
+  if(!l) return '<div class="empty">Stunde nicht gefunden.</div>';
+  var c = course(l.courseId), its = itemsOf(l.id);
+  var idx = its.findIndex(function(i){ return i.id===l.currentItemId; });
+
+  var head = '<div class="card">'
+    + '<div class="between"><div><div class="lesson__course">'+esc(c.name)+' · '+deShort(l.date)+' · '+l.slot+'. Stunde</div>'
+    + '<h2 style="margin-top:4px;font-size:1.2rem">'+esc(l.title)+'</h2></div>'+statusBadge(l)+'</div>'
+    + (l.goal? '<p class="small muted" style="margin-top:10px;line-height:1.55">'+esc(l.goal)+'</p>':'')
+    + '</div>';
+
+  var tabs = '<div class="row" style="margin:14px 0 12px;gap:8px">'
+    + '<button class="btn '+(ui.tab==="flow"?"btn--primary":"")+'" style="flex:1" data-tab="flow">Ablauf</button>'
+    + '<button class="btn '+(ui.tab==="part"?"btn--primary":"")+'" style="flex:1" data-tab="part">Mitarbeit</button>'
+    + '</div>';
+
+  var body;
+  if(ui.tab==="flow"){
+    var s = stageData(l);
+
+    /* Cockpit: links das, was die Klasse sieht – rechts, was nur die Lehrkraft sieht. */
+    var cockpit = "";
+    if(l.status!=="planned"){
+      var stage = '<div class="panel panel--stage">'
+        + '<div class="panel__label"><span class="dot"></span>Für die Klasse · Schritt '+s.step+' von '+s.total+'</div>'
+        + '<div class="stage__title">'+(s.done ? "Das war die Stunde" : esc(s.item ? s.item.title : "–"))+'</div>'
+        + (s.done ? '' : (s.item && s.item.description ? fmt(s.item.description) : '<p class="fmt">Kein Text hinterlegt.</p>'))
+        + '</div>';
+
+      var notes = '<div class="panel panel--notes">'
+        + '<div class="panel__label">Nur für dich</div>'
+        + (s.item && s.item.teacherNote
+            ? '<div class="teacher-note">'+esc(s.item.teacherNote)+'</div>'
+            : '<p class="small muted">Für diesen Schritt ist kein Hinweis hinterlegt.</p>')
+        + (s.next
+            ? '<div class="next"><b>Als Nächstes</b>'+esc(s.next.title)
+              + (s.next.teacherNote ? '<div class="teacher-note">'+esc(s.next.teacherNote)+'</div>' : '')
+              + '</div>'
+            : '<div class="next"><b>Als Nächstes</b>Letzter Schritt der Stunde</div>')
+        + '</div>';
+
+      cockpit = '<div class="cockpit">'+stage+notes+'</div>';
+    }
+
+    /* Steuerung: eine schmale Werkzeugleiste, keine breiten Balken. */
+    var nav1, project = "";
+    if(l.status==="planned"){
+      nav1 = '<button class="btn btn--primary" data-start="'+l.id+'">Stunde starten</button>';
+    } else if(l.status==="done"){
+      nav1 = '<button class="btn" data-prev="'+l.id+'">Zurück</button>'
+        + '<button class="btn btn--primary" data-tab="part">Mitarbeit prüfen</button>';
+    } else {
+      var last = idx===its.length-1;
+      nav1 = '<button class="btn" data-prev="'+l.id+'"'+(idx<=0?" disabled":"")+'>Zurück</button>'
+        + '<button class="btn btn--primary" data-next="'+l.id+'">'+(last?"Stunde abschließen":"Weiter")+'</button>'
+        + '<span class="small muted" style="margin-left:4px">Schritt '+s.step+' von '+s.total+' · ← → oder Leertaste</span>';
+    }
+    if(l.status!=="planned"){
+      project = '<span class="spacer"></span>'
+        + '<button class="btn btn--ghost" data-present="1" title="Zweites Fenster für den Beamer">'
+        +   (presenterOpen()?"Präsentation schließen":"Präsentationsfenster")+'</button>'
+        + '<button class="btn btn--ghost" data-fs="1" title="Vollbild auf diesem Bildschirm">Vollbild</button>';
+    }
+    var controls = '<div class="controls">'+nav1+project+'</div>';
+
+    /* Kompakte Schrittliste zum Springen */
+    var steps = '<div class="section-title">Ablauf</div>' + its.map(function(i,n){
+      var cls = i.id===l.currentItemId ? "step--current" : (idx>=0 && n<idx) || l.status==="done" ? "step--done" : "";
+      return '<div class="step '+cls+'" data-jump="'+i.id+'">'
+        + '<div class="step__num">'+(n+1)+'</div>'
+        + '<div class="step__body">'
+        +   '<div class="between"><div class="step__title">'+esc(i.title)+'</div>'
+        +     '<button class="badge '+(i.published?"badge--done":"badge--planned")+'" data-pub="'+i.id+'">'+(i.published?"freigegeben":"intern")+'</button></div>'
+        +   (i.teacherNote? '<div class="note"><b>Nur für dich</b>'+esc(i.teacherNote)+'</div>':'')
+        + '</div></div>';
+    }).join("");
+
+    body = cockpit + controls + steps;
+  } else {
+    var scale = c.scale, marks = gradesFor(scale), grading = marks.length>0;
+
+    var rows = studentsOf(c.id).map(function(st2){
+      var p = part(l.id, st2.id) || {};
+      var away = p.status==="excused" || p.status==="unexcused";
+
+      var statusBtns = STATUS.map(function(s3){
+        return '<button class="'+s3.cls+'" aria-pressed="'+(p.status===s3.id)+'" title="'+s3.label+'"'
+          + ' data-status="'+st2.id+'|'+s3.id+'">'+s3.short+'</button>';
+      }).join("");
+
+      /* Note 1–6 als Auswahlfeld, +/- Skalen als Segmentleiste – wie in der Nextcloud-App. */
+      var gradeCell;
+      if(!grading){ gradeCell = '<span class="no-scale">ohne Bewertung</span>'; }
+      else if(away){ gradeCell = '<span class="no-scale">–</span>'; }
+      else if(scale==="note"){
+        gradeCell = '<select class="grade-select" data-gradesel="'+st2.id+'">'
+          + '<option value=""'+(p.grade?"":" selected")+'>–</option>'
+          + marks.map(function(g){ return '<option value="'+g+'"'+(p.grade===g?" selected":"")+'>'+g+'</option>'; }).join("")
+          + '</select>';
+      } else {
+        gradeCell = '<div class="seg">'+marks.map(function(g){
+          return '<button aria-pressed="'+(p.grade===g)+'" data-grade="'+st2.id+'|'+g+'">'+esc(g)+'</button>';
+        }).join("")+'</div>';
+      }
+
+      return '<div class="student">'
+        + '<div class="student__name"><span>'+esc(st2.name)+'</span>'
+        +   (isDirty(p)&&p.updatedAt? '<span class="badge badge--dirty">offen</span>':'') + '</div>'
+        + '<div class="seg seg--status">'+statusBtns+'</div>'
+        + '<div>'+gradeCell+'</div>'
+        + '<button class="student__note '+(p.note?"has":"")+'" data-note="'+st2.id+'" title="Notiz bearbeiten">'
+        +   (p.note? esc(p.note) : "Notiz …") + '</button>'
+        + '</div>';
+    }).join("");
+
+    var stt = partStats(l);
+    var progressLabel = stt.grading
+      ? '<b>'+stt.graded+' von '+stt.total+'</b> bewertet'
+      : '<b>'+stt.marked+' von '+stt.total+'</b> erfasst';
+    var progressValue = stt.total ? Math.round((stt.grading? stt.graded : stt.marked)/stt.total*100) : 0;
+
+    body = '<div class="card" style="margin-bottom:var(--gap)">'
+      + '<div class="between"><div class="small">'+progressLabel+'</div>'
+      + '<div class="small muted">'+SCALE_LABEL[scale]+' · '+stt.absent+' abwesend</div></div>'
+      + '<div class="bar"><i style="width:'+progressValue+'%"></i></div></div>'
+      + '<div class="students">'+rows+'</div>';
+  }
+  return head + tabs + body;
+}
+
+function viewSync(){
+  var pend = pendingChanges();
+  var html = '<div class="section-title">Abgleich</div><div class="card">'
+    + '<div class="kv"><span class="muted">Letzter Abgleich</span><b>'+relTime(state.lastSync)+'</b></div>'
+    + '<div class="kv"><span class="muted">Offene Änderungen</span><b style="color:'+(pend.length?"var(--warn)":"var(--ok)")+'">'+pend.length+'</b></div>'
+    + '<div class="kv"><span class="muted">Konflikte</span><b style="color:'+(state.conflicts.length?"var(--bad)":"var(--ok)")+'">'+state.conflicts.length+'</b></div>'
+    + '</div>'
+    + '<div class="row" style="gap:8px;margin-top:12px">'
+    + '<button class="btn" style="flex:1" data-pull="1">Von Nextcloud laden</button>'
+    + '<button class="btn btn--primary" style="flex:1" data-push="1"'+(pend.length?"":" disabled")+'>Übertragen</button>'
+    + '</div>';
+
+  if(state.conflicts.length){
+    html += '<div class="section-title">Konflikte – bitte entscheiden</div>';
+    html += state.conflicts.map(function(c){
+      return '<div class="conflict"><b>'+esc(c.label)+'</b>'
+        + '<p class="small muted" style="margin-top:6px">Auf beiden Seiten geändert. Welche Version gilt?</p>'
+        + '<div class="choice">'
+        +   '<button data-keep="'+c.id+'|mine"><small>Dieses Gerät</small><strong>'+esc(c.mine)+'</strong></button>'
+        +   '<button data-keep="'+c.id+'|theirs"><small>Nextcloud</small><strong>'+esc(c.theirs)+'</strong></button>'
+        + '</div></div>';
+    }).join("");
+  }
+
+  html += '<div class="section-title">Noch nicht übertragen</div><div class="card">';
+  html += pend.length
+    ? pend.map(function(p){ return '<div class="change"><span class="dot" style="margin-top:6px"></span><span>'+esc(p.label)+'</span></div>'; }).join("")
+    : '<p class="small muted">Alles übertragen. Du kannst offline weiterarbeiten.</p>';
+  html += '</div>';
+
+  html += '<div class="section-title">Demo-Werkzeuge</div><div class="card">'
+    + '<p class="small muted" style="line-height:1.55">Es gibt noch keinen echten Server. Hier lässt sich simulieren, dass jemand parallel in der Nextcloud gearbeitet hat – so kannst du die Konfliktbehandlung ausprobieren.</p>'
+    + '<div class="stack" style="margin-top:12px">'
+    + '<button class="btn btn--wide" data-simulate="1">Änderung in der Nextcloud simulieren</button>'
+    + '<button class="btn btn--wide btn--danger" data-reset="1">Demodaten zurücksetzen</button>'
+    + '</div></div>';
+  return html;
+}
+
+/* ---------- Rahmen ---------- */
+function topbar(){
+  var pend = pendingChanges().length;
+  var title, sub, back="";
+  if(ui.view==="lesson"){
+    var l = lesson(ui.lessonId);
+    back = '<button class="back" data-back="1">‹</button>';
+    title = "Stunde"; sub = l ? deShort(l.date)+" · "+l.slot+". Stunde" : "";
+  } else if(ui.view==="courses"){ title="Kurse"; sub=state.meta.courses.length+" Kurse"; }
+  else if(ui.view==="sync"){ title="Abgleich"; sub="Zuletzt "+relTime(state.lastSync); }
+  else { title="Heute"; sub=deLong(iso(new Date())); }
+
+  /* Kein Zähler mehr in der Kopfzeile – die Zahl steht bereits am Reiter
+     "Abgleich", zweimal dasselbe zu zeigen stiftet nur Verwirrung. */
+  var themeBtn = '<button class="icon-btn" data-theme="1" title="Erscheinungsbild: '
+    + ({system:"System",light:"Hell",dark:"Dunkel"}[themePref]) + '">'
+    + '<svg viewBox="0 0 24 24">'+THEME_ICON[themePref]+'</svg></button>';
+
+  return '<div class="topbar">'+back
+    + '<div><div class="topbar__title">'+title+'</div><div class="topbar__sub">'+sub+'</div></div>'
+    + '<div class="topbar__spacer"></div>'+nav()+themeBtn+'</div>';
+}
+
+function nav(){
+  var pend = pendingChanges().length + state.conflicts.length;
+  function b(id,label,path){
+    return '<button data-go="'+id+'" aria-current="'+(ui.view===id||(id==="today"&&ui.view==="lesson"))+'">'
+      + '<svg viewBox="0 0 24 24">'+path+'</svg><span>'+label+'</span>'
+      + (id==="sync"&&pend? '<span class="count">'+pend+'</span>':'')
+      + '</button>';
+  }
+  return '<div class="nav">'
+    + b("today","Heute",'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/>')
+    + b("courses","Kurse",'<path d="M4 5h16v14H4z"/><path d="M4 9h16M9 9v10"/>')
+    + b("sync","Abgleich",'<path d="M21 12a9 9 0 0 1-15.5 6.2M3 12A9 9 0 0 1 18.5 5.8"/><path d="M3 20v-5h5M21 4v5h-5"/>')
+    + '</div>';
+}
+
+function sheet(){
+  if(!ui.sheet) return "";
+  var s = ui.sheet;
+  var st = state.meta.students.filter(function(x){ return x.id===s.studentId; })[0];
+  var p = part(s.lessonId, s.studentId) || {};
+  return '<div class="sheet-bg" data-sheetbg="1"><div class="sheet">'
+    + '<h3>Notiz zu '+esc(st.name)+'</h3>'
+    + '<p class="small muted" style="margin-top:4px">Nur für dich sichtbar, wird mit der Mitarbeit übertragen.</p>'
+    + '<textarea id="noteInput" placeholder="z. B. hat die Gruppe gut moderiert">'+esc(p.note||"")+'</textarea>'
+    + '<div class="row" style="gap:8px;margin-top:14px">'
+    +   '<button class="btn" style="flex:1" data-sheetbg="1">Abbrechen</button>'
+    +   '<button class="btn btn--primary" style="flex:1" data-savenote="1">Speichern</button>'
+    + '</div></div></div>';
+}
+
+function overlay(){
+  if(!ui.fullscreen || ui.view!=="lesson") return "";
+  var l = lesson(ui.lessonId); if(!l) return "";
+  var s = stageData(l);
+  var last = s.step>=s.total;
+  return '<div class="overlay">'
+    + '<div class="overlay__meta">'+esc(s.courseName)+' · '+esc(s.lessonTitle)+'</div>'
+    + '<h1 class="overlay__title">'+(s.done?"Das war die Stunde":esc(s.item?s.item.title:""))+'</h1>'
+    + '<div class="overlay__body">'+(s.done?"":fmt(s.item?s.item.description:""))+'</div>'
+    + '<div class="presbar">'
+    +   '<button class="btn" data-prev="'+l.id+'">Zurück</button>'
+    +   '<div class="grow"><div class="bar"><i style="width:'+(s.done?100:Math.round(s.step/s.total*100))+'%"></i></div>'
+    +     '<div class="small muted" style="margin-top:6px">'+(s.done?"abgeschlossen":"Schritt "+s.step+" von "+s.total)+'</div></div>'
+    +   (s.done ? '' : '<button class="btn btn--primary" data-next="'+l.id+'">'+(last?"Abschließen":"Weiter")+'</button>')
+    +   '<button class="btn btn--ghost" data-fsexit="1">Beenden</button>'
+    + '</div></div>';
+}
+
+function render(){
+  var body = ui.view==="today" ? viewToday()
+    : ui.view==="courses" ? viewCourses()
+    : ui.view==="sync" ? viewSync()
+    : viewLesson();
+  document.getElementById("app").innerHTML =
+    '<div class="app">'+topbar()+body+'</div>'+sheet()+overlay()
+    + (ui.toast? '<div class="toast">'+esc(ui.toast)+'</div>':'');
+  var ta = document.getElementById("noteInput");
+  if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+
+  if(ui.searchFocus){
+    var sf = document.getElementById("courseSearch");
+    if(sf){ sf.focus(); try{ sf.setSelectionRange(sf.value.length, sf.value.length); }catch(e){} }
+    ui.searchFocus = false;
+  }
+  updatePresenter();
+}
+
+/* ---------- Ereignisse ---------- */
+document.addEventListener("click", function(ev){
+  if(!ev.target || !ev.target.closest) return;
+  var el = ev.target.closest("[data-go],[data-open],[data-back],[data-tab],[data-start],[data-next],[data-prev],[data-jump],[data-pub],[data-status],[data-grade],[data-note],[data-savenote],[data-sheetbg],[data-pull],[data-push],[data-keep],[data-simulate],[data-reset],[data-present],[data-fs],[data-fsexit],[data-theme],[data-course],[data-cfilter]");
+  if(!el) return;
+  var d = el.dataset;
+
+  if(d.savenote){
+    var ta2 = document.getElementById("noteInput");
+    setPart(ui.sheet.lessonId, ui.sheet.studentId, { note: ta2 ? ta2.value.trim() : "" });
+    ui.sheet=null; render(); return;
+  }
+  if(d.sheetbg){ if(ev.target===el || el.classList.contains("btn")){ ui.sheet=null; render(); } return; }
+  if(d.go){ ui.view=d.go; window.scrollTo(0,0); render(); return; }
+  if(d.back){ ui.view="today"; render(); return; }
+  if(d.open){ ui.view="lesson"; ui.lessonId=parseInt(d.open,10); ui.tab="flow"; window.scrollTo(0,0); render(); return; }
+  if(d.tab){ ui.tab=d.tab; render(); return; }
+  if(d.start){ startLesson(parseInt(d.start,10)); return; }
+  if(d.next){ nextStep(parseInt(d.next,10)); return; }
+  if(d.prev){ prevStep(parseInt(d.prev,10)); return; }
+  if(d.pub){ ev.stopPropagation(); togglePublish(parseInt(d.pub,10)); return; }
+  if(d.jump){ jumpTo(ui.lessonId, parseInt(d.jump,10)); return; }
+
+  if(d.status){
+    var a = d.status.split("|");
+    var cur = part(ui.lessonId, parseInt(a[0],10));
+    setPart(ui.lessonId, parseInt(a[0],10), { status: (cur && cur.status===a[1]) ? "" : a[1] });
+    render(); return;
+  }
+  if(d.grade){
+    var b2 = d.grade.split("|");
+    var cur2 = part(ui.lessonId, parseInt(b2[0],10));
+    setPart(ui.lessonId, parseInt(b2[0],10), {
+      grade: (cur2 && cur2.grade===b2[1]) ? "" : b2[1],
+      status: (cur2 && cur2.status) ? cur2.status : "present"
+    });
+    render(); return;
+  }
+  if(d.note){ ui.sheet = { lessonId:ui.lessonId, studentId:parseInt(d.note,10) }; render(); return; }
+  if(d.theme){ cycleTheme(); return; }
+  if(d.course){ ui.courseId = parseInt(d.course,10); ui.courseSearch=""; render(); return; }
+  if(d.cfilter){ ui.courseFilter = d.cfilter; render(); return; }
+  if(d.present){ if(presenterOpen()) closePresenter(); else openPresenter(); render(); return; }
+  if(d.fs){ enterFullscreen(); return; }
+  if(d.fsexit){ exitFullscreen(); return; }
+
+  if(d.pull){
+    var r = pull();
+    toast(r.conflicts ? r.conflicts+" Konflikt(e) – bitte entscheiden"
+      : "Geladen: "+r.added+" neu, "+r.updated+" aktualisiert");
+    return;
+  }
+  if(d.push){
+    var r2 = push();
+    toast(r2.conflicts ? r2.conflicts+" Konflikt(e) – bitte entscheiden" : r2.sent+" Änderungen übertragen");
+    return;
+  }
+  if(d.keep){ var k2=d.keep.split("|"); resolveConflict(k2[0], k2[1]); return; }
+  if(d.simulate){ toast(simulateServerEdit()); return; }
+  if(d.reset){
+    if(confirm("Alle lokalen Daten verwerfen und die Demo neu aufsetzen?")){
+      state = freshState(); save(); ui.view="today"; toast("Demodaten zurückgesetzt");
+    }
+    return;
+  }
+});
+
+/* Suche in der Kursansicht – Fokus und Schreibmarke überleben das Neuzeichnen. */
+document.addEventListener("input", function(ev){
+  if(!ev.target || ev.target.id!=="courseSearch") return;
+  ui.courseSearch = ev.target.value;
+  ui.searchFocus = true;
+  render();
+});
+
+/* Notenauswahl 1–6 */
+document.addEventListener("change", function(ev){
+  var el = ev.target;
+  if(!el || !el.dataset || !el.dataset.gradesel) return;
+  var studentId = parseInt(el.dataset.gradesel, 10);
+  var cur = part(ui.lessonId, studentId);
+  setPart(ui.lessonId, studentId, {
+    grade: el.value,
+    status: (cur && cur.status) ? cur.status : "present"
+  });
+  render();
+});
+
+/* Tastatur – auch fuer Presenter-Fernbedienungen, die Pfeiltasten senden. */
+document.addEventListener("keydown", function(ev){
+  if(ui.sheet) return;
+  var tag = ev.target && ev.target.tagName;
+  if(tag==="TEXTAREA" || tag==="INPUT") return;
+  if(ui.view!=="lesson" || ui.tab!=="flow") return;
+  var l = lesson(ui.lessonId); if(!l || l.status==="planned") return;
+
+  if(ev.key==="ArrowRight" || ev.key==="PageDown" || ev.key===" "){ ev.preventDefault(); nextStep(l.id); }
+  else if(ev.key==="ArrowLeft" || ev.key==="PageUp"){ ev.preventDefault(); prevStep(l.id); }
+  else if(ev.key==="Escape" && ui.fullscreen){ exitFullscreen(); }
+});
+document.addEventListener("fullscreenchange", function(){
+  if(!document.fullscreenElement && ui.fullscreen){ ui.fullscreen=false; render(); }
+});
+
+/* ---------- Start ---------- */
+initTheme();
+/* In der macOS-App liegt die Kopfzeile hinter den Fensterknöpfen – dort braucht
+   sie oben Platz und muss als Greiffläche zum Verschieben dienen. */
+if(navigator.userAgent.indexOf("Electron")>=0 && navigator.userAgent.indexOf("Mac")>=0){
+  document.body.classList.add("is-mac-app");
+}
+state = load();
+save();
+render();
+if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
+  navigator.serviceWorker.register("sw.js").catch(function(){});
+}
+</script>
+</body>
+</html>

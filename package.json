@@ -1,0 +1,64 @@
+{
+  "name": "schoolplanner-offline",
+  "productName": "School Planner Offline",
+  "version": "0.1.0",
+  "description": "Offline-Begleiter zur Nextcloud-App School Planner: Unterricht durchführen, Anwesenheit und Mitarbeit erfassen.",
+  "main": "electron/main.js",
+  "author": "Holger Heidkamp <holger@heidkamp.dev>",
+  "license": "AGPL-3.0",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "serve": "npx --yes serve .",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.heidkamp.schoolplanner.offline",
+    "productName": "School Planner Offline",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "index.html",
+      "manifest.webmanifest",
+      "sw.js",
+      "icon.svg",
+      "electron/**"
+    ],
+    "publish": [
+      { "provider": "github", "owner": "holger-dev", "repo": "schoolplanneroffline" }
+    ],
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] }
+      ]
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] }
+      ],
+      "category": "Education"
+    }
+  }
+}
