@@ -13,7 +13,7 @@
  * über Neustarts und über App-Updates hinweg.
  */
 
-const { app, BrowserWindow, protocol, screen, shell, Menu, net } = require("electron");
+const { app, BrowserWindow, protocol, screen, shell, Menu, net, ipcMain } = require("electron");
 const path = require("path");
 const { pathToFileURL } = require("url");
 
@@ -59,9 +59,19 @@ function createWindow() {
     backgroundColor: "#0f1622",
     title: "School Planner Offline",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
-    trafficLightPosition: process.platform === "darwin" ? { x: 14, y: 15 } : undefined,
+    // Mittig in dem 38 px hohen Streifen, den die Seite oben frei laesst.
+    trafficLightPosition: process.platform === "darwin" ? { x: 16, y: 13 } : undefined,
     autoHideMenuBar: process.platform !== "darwin",
-    webPreferences: { contextIsolation: true, nodeIntegration: false, spellcheck: false }
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      spellcheck: false,
+      preload: path.join(__dirname, "preload.js"),
+      additionalArguments: [
+        "--spo-version=" + app.getVersion(),
+        "--spo-platform=" + process.platform
+      ]
+    }
   });
 
   mainWindow.loadURL(ORIGIN + "/index.html");
@@ -122,37 +132,23 @@ function buildMenu() {
 }
 
 /*
- * Selbstaktualisierung über die GitHub-Releases.
+ * Bewusst KEINE Selbstaktualisierung.
  *
- * Achtung macOS: Squirrel installiert nur signierte Updates. Ohne
- * Apple-Developer-Zertifikat wird das Update zwar geladen, aber nicht
- * eingespielt. Windows (NSIS) und Linux (AppImage) aktualisieren sich auch
- * unsigniert. Deshalb hier bewusst kein automatisches Update unter macOS –
- * eine falsche Erfolgsmeldung wäre schlimmer als gar keine.
+ * Unter macOS installiert Squirrel nur signierte Updates – ohne Zertifikat
+ * würde die Datei geladen, das Update aber nie eingespielt. Eine App, die
+ * "aktualisiert" meldet und es nicht tut, ist schlimmer als eine ohne
+ * Updatefunktion. Damit sich alle Plattformen gleich verhalten und testbar
+ * bleiben, prüft die Seite lediglich, ob ein neueres Release vorliegt, und
+ * zeigt eine Anleitung. Heruntergeladen und ersetzt wird von Hand.
  */
-function setupUpdates() {
-  if (!app.isPackaged) return;
-  if (process.platform === "darwin" && !process.env.SPO_MAC_SIGNED) return;
-
-  let autoUpdater;
-  try {
-    autoUpdater = require("electron-updater").autoUpdater;
-  } catch (err) {
-    return;                       // electron-updater nicht installiert
-  }
-  autoUpdater.autoDownload = true;
-  autoUpdater.on("update-downloaded", () => {
-    if (mainWindow) mainWindow.webContents.send("update-ready");
-  });
-  autoUpdater.on("error", () => {});   // Netzfehler dürfen die App nie stören
-  autoUpdater.checkForUpdatesAndNotify().catch(() => {});
-}
+ipcMain.handle("open-external", (_event, url) => {
+  if (typeof url === "string" && /^https:\/\//.test(url)) shell.openExternal(url);
+});
 
 app.whenReady().then(() => {
   registerProtocol();
   buildMenu();
   createWindow();
-  setupUpdates();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

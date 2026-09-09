@@ -65,10 +65,24 @@ p{margin:0}
   -webkit-app-region:drag;
 }
 .topbar button,.topbar input,.topbar select,.topbar .nav{-webkit-app-region:no-drag}
-body.is-mac-app .topbar{padding-top:26px}
-body.is-mac-app .topbar::before{
-  content:"";position:absolute;top:0;left:-18px;right:-18px;height:26px;-webkit-app-region:drag;
+/* macOS-App: fester 38-px-Streifen fuer die Fensterknoepfe, zugleich Greifflaeche.
+   Feste Hoehe statt Innenabstand – so kann der Inhalt nie darunter rutschen. */
+.titlebar{display:none}
+body.is-mac-app .titlebar{
+  display:block;position:fixed;top:0;left:0;right:0;height:38px;z-index:60;
+  background:var(--bg);border-bottom:1px solid var(--line);-webkit-app-region:drag;
 }
+body.is-mac-app .app{padding-top:38px}
+body.is-mac-app .topbar{top:38px}
+body.is-mac-app .month__label{top:calc(38px + 56px)}
+body.is-mac-app .course-side{top:calc(38px + 64px)}
+
+/* Hinweis auf eine neuere Fassung */
+.update{border:1px solid var(--accent);background:var(--accent-soft);border-radius:var(--r);
+        padding:var(--pad);margin-bottom:14px}
+.update h3{font-size:.92rem;font-weight:700}
+.update ol{margin:9px 0 0;padding-left:19px;font-size:.81rem;color:var(--muted);line-height:1.65}
+.update ol b{color:var(--ink);font-weight:600}
 .topbar__title{font-size:.98rem;font-weight:700;letter-spacing:-.01em}
 .topbar__sub{font-size:.75rem;color:var(--muted);margin-top:1px}
 .topbar__spacer{flex:1}
@@ -432,7 +446,8 @@ function seed(){
 var state = null;
 var ui = {
   view:"today", lessonId:null, tab:"flow", sheet:null, toast:null, toastTimer:null,
-  fullscreen:false, courseId:null, courseFilter:"upcoming", courseSearch:"", searchFocus:false
+  fullscreen:false, courseId:null, courseFilter:"upcoming", courseSearch:"", searchFocus:false,
+  update:null
 };
 
 /* ---------- Erscheinungsbild: System / Hell / Dunkel ---------- */
@@ -805,6 +820,70 @@ function exitFullscreen(){
   ui.fullscreen = false;
   if(document.fullscreenElement && document.exitFullscreen){ document.exitFullscreen().catch(function(){}); }
   render();
+}
+
+/* =========================================================================
+   Hinweis auf eine neuere Fassung
+   Kein automatisches Update – nur nachsehen, ob im GitHub-Release etwas
+   Neueres liegt, und erklaeren, was zu tun ist. Schlaegt der Abruf fehl
+   (kein Netz, im Unterricht der Normalfall), passiert schlicht nichts.
+   ========================================================================= */
+var UPDATE_REPO = "holger-dev/schoolplanneroffline";
+var UPDATE_SKIP_KEY = "spo.skipVersion";
+
+function isNewer(remote, local){
+  var a = String(remote).split("."), b = String(local).split(".");
+  for(var i=0;i<Math.max(a.length,b.length);i++){
+    var x = parseInt(a[i]||"0",10) || 0, y = parseInt(b[i]||"0",10) || 0;
+    if(x!==y) return x>y;
+  }
+  return false;
+}
+
+function checkForUpdate(){
+  if(!window.spo || !window.spo.version) return;          // nur in der Desktop-App
+  var skipped = "";
+  try{ skipped = localStorage.getItem(UPDATE_SKIP_KEY) || ""; }catch(e){}
+
+  fetch("https://api.github.com/repos/"+UPDATE_REPO+"/releases/latest", {
+    headers: { "Accept": "application/vnd.github+json" }
+  })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(rel){
+      if(!rel || !rel.tag_name) return;
+      var latest = String(rel.tag_name).replace(/^v/,"");
+      if(latest===skipped) return;
+      if(!isNewer(latest, window.spo.version)) return;
+      ui.update = { version: latest, url: rel.html_url || ("https://github.com/"+UPDATE_REPO+"/releases/latest") };
+      render();
+    })
+    .catch(function(){});                                  // offline: kein Thema
+}
+
+function updateBanner(){
+  if(!ui.update) return "";
+  var mac = window.spo && window.spo.platform === "darwin";
+  var steps = mac
+    ? '<li><b>Herunterladen</b> – die Datei <code>.dmg</code> vom Release.</li>'
+      + '<li><b>App beenden.</b></li>'
+      + '<li>Neue App in den Ordner <b>Programme</b> ziehen und das Ersetzen bestätigen.</li>'
+      + '<li>Beim ersten Start: <b>Rechtsklick auf die App → Öffnen</b>, dann noch einmal Öffnen. '
+      + 'Die Meldung kommt, weil die App nicht signiert ist.</li>'
+    : '<li><b>Herunterladen</b> – Installationsdatei vom Release.</li>'
+      + '<li><b>App beenden.</b></li>'
+      + '<li>Installation ausführen und die vorhandene Fassung ersetzen.</li>';
+
+  return '<div class="update">'
+    + '<div class="between"><h3>Version '+esc(ui.update.version)+' ist verfügbar</h3>'
+    + '<span class="small muted">installiert: '+esc(window.spo.version)+'</span></div>'
+    + '<p class="small muted" style="margin-top:5px;line-height:1.55">'
+    + 'Deine erfassten Daten bleiben dabei erhalten – sie liegen im Nutzerprofil, nicht in der App. '
+    + 'Vor dem Wechsel am besten einmal abgleichen.</p>'
+    + '<ol>'+steps+'</ol>'
+    + '<div class="controls">'
+    +   '<button class="btn btn--primary" data-relopen="1">Zur Download-Seite</button>'
+    +   '<button class="btn btn--ghost" data-relskip="1">Diese Version überspringen</button>'
+    + '</div></div>';
 }
 
 function toast(msg){
@@ -1205,7 +1284,8 @@ function render(){
     : ui.view==="sync" ? viewSync()
     : viewLesson();
   document.getElementById("app").innerHTML =
-    '<div class="app">'+topbar()+body+'</div>'+sheet()+overlay()
+    '<div class="titlebar"></div>'
+    + '<div class="app">'+topbar()+updateBanner()+body+'</div>'+sheet()+overlay()
     + (ui.toast? '<div class="toast">'+esc(ui.toast)+'</div>':'');
   var ta = document.getElementById("noteInput");
   if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
@@ -1221,7 +1301,7 @@ function render(){
 /* ---------- Ereignisse ---------- */
 document.addEventListener("click", function(ev){
   if(!ev.target || !ev.target.closest) return;
-  var el = ev.target.closest("[data-go],[data-open],[data-back],[data-tab],[data-start],[data-next],[data-prev],[data-jump],[data-pub],[data-status],[data-grade],[data-note],[data-savenote],[data-sheetbg],[data-pull],[data-push],[data-keep],[data-simulate],[data-reset],[data-present],[data-fs],[data-fsexit],[data-theme],[data-course],[data-cfilter]");
+  var el = ev.target.closest("[data-go],[data-open],[data-back],[data-tab],[data-start],[data-next],[data-prev],[data-jump],[data-pub],[data-status],[data-grade],[data-note],[data-savenote],[data-sheetbg],[data-pull],[data-push],[data-keep],[data-simulate],[data-reset],[data-present],[data-fs],[data-fsexit],[data-theme],[data-course],[data-cfilter],[data-relopen],[data-relskip]");
   if(!el) return;
   var d = el.dataset;
 
@@ -1257,6 +1337,15 @@ document.addEventListener("click", function(ev){
     render(); return;
   }
   if(d.note){ ui.sheet = { lessonId:ui.lessonId, studentId:parseInt(d.note,10) }; render(); return; }
+  if(d.relopen){
+    if(window.spo && window.spo.openExternal) window.spo.openExternal(ui.update.url);
+    else window.open(ui.update.url, "_blank");
+    return;
+  }
+  if(d.relskip){
+    try{ localStorage.setItem(UPDATE_SKIP_KEY, ui.update.version); }catch(e){}
+    ui.update = null; render(); return;
+  }
   if(d.theme){ cycleTheme(); return; }
   if(d.course){ ui.courseId = parseInt(d.course,10); ui.courseSearch=""; render(); return; }
   if(d.cfilter){ ui.courseFilter = d.cfilter; render(); return; }
@@ -1326,12 +1415,13 @@ document.addEventListener("fullscreenchange", function(){
 initTheme();
 /* In der macOS-App liegt die Kopfzeile hinter den Fensterknöpfen – dort braucht
    sie oben Platz und muss als Greiffläche zum Verschieben dienen. */
-if(navigator.userAgent.indexOf("Electron")>=0 && navigator.userAgent.indexOf("Mac")>=0){
+if(window.spo && window.spo.platform === "darwin"){
   document.body.classList.add("is-mac-app");
 }
 state = load();
 save();
 render();
+checkForUpdate();
 if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
   navigator.serviceWorker.register("sw.js").catch(function(){});
 }

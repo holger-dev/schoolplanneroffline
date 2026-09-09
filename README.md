@@ -58,18 +58,28 @@ xattr -dr com.apple.quarantine "/Applications/School Planner Offline.app"
 Windows SmartScreen meldet aus demselben Grund „Unbekannter Herausgeber" →
 *Weitere Informationen* → *Trotzdem ausführen*.
 
-## Automatische Updates
+## Updates
 
-Die Windows- und Linux-Fassungen prüfen beim Start, ob im GitHub-Release eine
-neuere Version liegt, laden sie im Hintergrund und installieren sie beim
-nächsten Start (`electron-updater`).
+**Es gibt bewusst keine Selbstaktualisierung.** Unter macOS installiert Squirrel
+nur signierte Updates – ohne Zertifikat würde die Datei geladen, das Update aber
+nie eingespielt. Eine App, die „aktualisiert" meldet und es nicht tut, ist
+schlimmer als eine ohne Updatefunktion. Damit sich alle drei Plattformen gleich
+verhalten und testbar bleiben, aktualisiert keine von ihnen automatisch.
 
-**Unter macOS ist die Selbstaktualisierung bewusst abgeschaltet.** Squirrel
-installiert dort nur signierte Updates – ohne Zertifikat würde die Datei zwar
-geladen, das Update aber stillschweigend nie eingespielt. Eine falsche
-Erfolgsmeldung wäre schlimmer als gar keine, also gibt es unter macOS bis auf
-Weiteres den Weg über eine neue `.dmg`. Mit Zertifikat lässt sich das über die
-Umgebungsvariable `SPO_MAC_SIGNED` wieder einschalten.
+Stattdessen sieht die App beim Start nach, ob im GitHub-Release etwas Neueres
+liegt, und zeigt einen Hinweis **mit der passenden Anleitung** – unter macOS
+inklusive des Gatekeeper-Schritts, unter Windows ohne. „Diese Version
+überspringen" blendet den Hinweis bis zur nächsten Fassung aus. Schlägt der
+Abruf fehl – im Unterricht der Normalfall – passiert schlicht nichts.
+
+### Neue Fassung einspielen
+
+1. Neue Datei vom Release herunterladen.
+2. App **beenden**.
+3. macOS: App nach *Programme* ziehen, Ersetzen bestätigen. Windows/Linux:
+   Installation ausführen bzw. AppImage austauschen.
+4. macOS beim ersten Start: **Rechtsklick auf die App → Öffnen** (die
+   Quarantäne-Markierung hängt am frischen Download, nicht an der App).
 
 ### Was passiert dabei mit den erfassten Daten?
 
@@ -77,8 +87,13 @@ Nichts. Die Daten liegen im `localStorage` des Nutzerprofils
 (`~/Library/Application Support/School Planner Offline` bzw. `%APPDATA%`), nicht
 im Programmpaket. Ein Update tauscht nur das Paket aus.
 
-Voraussetzung dafür ist, dass der **Origin stabil bleibt** – siehe nächster
-Abschnitt. Genau daran wäre es beinahe gescheitert.
+Zwei Voraussetzungen dafür, beide festgeschrieben:
+
+- Der **Origin muss stabil bleiben** – siehe nächster Abschnitt. Genau daran
+  wäre es beinahe gescheitert.
+- `appId` und `productName` in der `package.json` dürfen sich **nicht ändern**.
+  Daraus leitet Electron den Profilordner ab; ein umbenanntes Produkt stünde vor
+  leeren Daten.
 
 ### Warum ein eigenes Protokoll statt file:// oder localhost
 
@@ -102,8 +117,10 @@ Die Action `.github/workflows/release.yml` baut auf drei Läufern parallel
 
 1. Auf GitHub ein Release mit Tag `v0.2.0` anlegen und **veröffentlichen**.
 2. Die Action übernimmt die Version aus dem Tag in die `package.json`, baut und
-   lädt `.dmg`, `.exe`, `.AppImage` samt der `latest*.yml` hoch – Letztere sind
-   die Grundlage der Selbstaktualisierung.
+   hängt `.dmg`, `.exe` und `.AppImage` ans Release.
+
+Die Versionsnummer im Tag ist zugleich das, womit die App ihren Hinweis
+vergleicht – ein Release ohne Tag-Version bleibt also unbemerkt.
 
 Über *Actions → Run workflow* lässt sich der Build auch ohne Release testen; die
 Pakete landen dann als Artefakte statt am Release.
