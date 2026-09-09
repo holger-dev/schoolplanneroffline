@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag eines bestehenden Releases (z. B. v0.2.0). Leer = nur bauen, nichts anhängen."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -29,6 +34,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Bei manuellem Lauf mit Tag genau diesen Stand bauen.
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -39,20 +47,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Version aus dem Release-Tag uebernehmen (v1.2.3 -> 1.2.3), damit
-      # package.json und Release nicht auseinanderlaufen.
+      # Version aus dem Tag uebernehmen (v1.2.3 -> 1.2.3), damit package.json
+      # und Release nicht auseinanderlaufen. electron-builder sucht das
+      # passende Release ueber genau diese Versionsnummer.
       - name: Sync version with tag
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || github.event.inputs.tag != ''
         shell: bash
+        env:
+          RAW_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="${RAW_TAG#v}"
           node -e "
             const fs=require('fs');
             const p=JSON.parse(fs.readFileSync('package.json','utf8'));
-            p.version='$TAG';
+            p.version=process.argv[1];
             fs.writeFileSync('package.json', JSON.stringify(p,null,2)+'\n');
             console.log('Version gesetzt auf', p.version);
-          "
+          " "$VERSION"
 
       # Wichtig: das "--" trennt die Argumente fuer npm von denen fuer
       # electron-builder. Ohne die Trennung landet "--publish never" bei npm,
@@ -65,7 +76,7 @@ jobs:
           # sonst mit einem Signaturfehler abbrechen.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
+          if [ "${{ github.event_name }}" = "release" ] || [ -n "${{ github.event.inputs.tag }}" ]; then
             npm run ${{ matrix.script }} -- --publish always
           else
             npm run ${{ matrix.script }} -- --publish never
@@ -75,6 +86,18 @@ jobs:
         if: always()
         shell: bash
         run: ls -la dist || true
+
+      # Ein Lauf, der gruen meldet aber nichts gebaut hat, waere schlimmer als
+      # ein roter – deshalb hier bewusst hart abbrechen.
+      - name: Verify artifacts
+        shell: bash
+        run: |
+          COUNT=$(ls dist/*.dmg dist/*.exe dist/*.AppImage 2>/dev/null | wc -l | tr -d ' ')
+          echo "Gefundene Pakete: $COUNT"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::Es wurde kein Installationspaket erzeugt."
+            exit 1
+          fi
 
       - name: Upload artifacts (bei manuellem Lauf)
         if: github.event_name == 'workflow_dispatch'
