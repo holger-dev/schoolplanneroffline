@@ -92,9 +92,13 @@ jobs:
       - name: Verify artifacts
         shell: bash
         run: |
-          COUNT=$(ls dist/*.dmg dist/*.exe dist/*.AppImage 2>/dev/null | wc -l | tr -d ' ')
-          echo "Gefundene Pakete: $COUNT"
-          if [ "$COUNT" -eq 0 ]; then
+          # nullglob statt ls: GitHub faehrt bash mit "set -eo pipefail", und
+          # ein ls ohne Treffer wuerde den Schritt beenden, bevor er prueft.
+          shopt -s nullglob
+          files=(dist/*.dmg dist/*.exe dist/*.AppImage)
+          echo "Gefundene Pakete: ${#files[@]}"
+          for f in "${files[@]}"; do echo "  - $f"; done
+          if [ "${#files[@]}" -eq 0 ]; then
             echo "::error::Es wurde kein Installationspaket erzeugt."
             exit 1
           fi
