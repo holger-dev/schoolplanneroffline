@@ -621,12 +621,18 @@ function scaleOf(courseId){ var c=course(courseId); return c ? (c.participationS
 function lessonStatus(l){
   var its = itemsOf(l.id);
   if(!its.length) return "planned";
-  var current = its.filter(function(i){ return i.isCurrent; }).length;
+  var idx = its.findIndex(function(i){ return i.isCurrent; });
   var published = its.filter(function(i){ return i.published; }).length;
-  if(current > 0) return "running";
-  if(published >= its.length) return "done";
-  if(published > 0) return "running";
-  return "planned";
+
+  if(idx < 0){
+    // Kein aktueller Schritt: entweder noch nicht gestartet, oder ein alter
+    // Datenbestand aus der Zeit, als die App einen eigenen Endzustand kannte.
+    return published > 0 ? "done" : "planned";
+  }
+  // Wie in der Nextcloud: Steht der aktuelle Schritt am Ende und ist alles
+  // freigegeben, gibt es nichts mehr zu tun – die Stunde ist vorbei.
+  if(idx === its.length - 1 && published >= its.length) return "done";
+  return "running";
 }
 function currentItem(lessonId){
   var its = itemsOf(lessonId);
@@ -1094,13 +1100,15 @@ function disconnect(){
 function setProgress(lessonId, targetIndex){
   var its = itemsOf(lessonId);
   if(!its.length) return;
-  var last = its.length;
+  // Nie ueber den letzten Schritt hinaus: Die Nextcloud kennt keinen Zustand
+  // "fertig ohne aktuelles Element" – dort bleibt am Ende der letzte Schritt
+  // stehen. Beide Seiten muessen dasselbe meinen.
   if(targetIndex < 0) targetIndex = 0;
-  if(targetIndex > last) targetIndex = last;
+  if(targetIndex > its.length - 1) targetIndex = its.length - 1;
 
   its.forEach(function(i, n){
-    var published = n < targetIndex || (n === targetIndex && targetIndex < last);
-    var current   = n === targetIndex && targetIndex < last;
+    var published = n <= targetIndex;
+    var current   = n === targetIndex;
     if(i.published !== published || i.isCurrent !== current){
       i.published = published;
       i.isCurrent = current;
@@ -1112,8 +1120,8 @@ function currentIndex(lessonId){
   var its = itemsOf(lessonId);
   var idx = its.findIndex(function(i){ return i.isCurrent; });
   if(idx >= 0) return idx;
-  // Kein aktueller Schritt: entweder noch nicht gestartet oder abgeschlossen.
-  return its.some(function(i){ return i.published; }) ? its.length : -1;
+  // Alter Datenbestand ohne aktuellen Schritt: als "am Ende" behandeln.
+  return its.some(function(i){ return i.published; }) ? its.length - 1 : -1;
 }
 
 function startLesson(id){ setProgress(id, 0); render(); }
@@ -1255,8 +1263,8 @@ function presenterOpen(){ return !!(presentWin && !presentWin.closed); }
 
 function stageData(l){
   var its = itemsOf(l.id);
-  var idx = its.findIndex(function(i){ return i.isCurrent; });
   var status = lessonStatus(l);
+  var idx = status==="planned" ? -1 : currentIndex(l.id);
   var cur = idx>=0 ? its[idx] : null;
   return {
     courseName: (course(l.courseId)||{}).name || "",
@@ -1537,11 +1545,17 @@ function viewLesson(){
     } else if(!s.item){
       nav1 = '<div class="row"><button class="btn" data-prev="'+l.id+'">Zurück</button>'
         + '<button class="btn btn--primary" data-tab="part">Mitarbeit</button></div>';
-    } else {
-      var last = s.step>=s.total;
+    } else if(status==="done"){
+      /* Wie in der Nextcloud: Der letzte Schritt bleibt stehen, es gibt kein
+         weiteres Element mehr – die Stunde ist damit durch. */
       nav1 = '<div class="row">'
         + '<button class="btn" data-prev="'+l.id+'"'+(idxNow<=0?" disabled":"")+'>Zurück</button>'
-        + '<button class="btn btn--primary" data-next="'+l.id+'">'+(last?"Abschließen":"Weiter")+'</button>'
+        + '<button class="btn btn--primary" data-tab="part">Mitarbeit</button>'
+        + '</div><div class="hint">Letzter Schritt – die Stunde ist durch.</div>';
+    } else {
+      nav1 = '<div class="row">'
+        + '<button class="btn" data-prev="'+l.id+'"'+(idxNow<=0?" disabled":"")+'>Zurück</button>'
+        + '<button class="btn btn--primary" data-next="'+l.id+'">Weiter</button>'
         + '</div><div class="hint">← → oder Leertaste</div>';
     }
     var project = status==="planned" ? "" :
@@ -1801,7 +1815,7 @@ function overlay(){
     + '<div class="presbar"><button class="btn" data-prev="'+l.id+'">Zurück</button>'
     + '<div class="grow"><div class="bar"><i style="width:'+(s.item?Math.round(s.step/s.total*100):100)+'%"></i></div>'
     + '<div class="small muted" style="margin-top:5px">'+(s.item?"Schritt "+s.step+" von "+s.total:"abgeschlossen")+'</div></div>'
-    + (s.item ? '<button class="btn btn--primary" data-next="'+l.id+'">'+(last?"Abschließen":"Weiter")+'</button>' : '')
+    + (s.item && !s.done ? '<button class="btn btn--primary" data-next="'+l.id+'">Weiter</button>' : '')
     + '<button class="btn btn--ghost" data-fsexit="1">Beenden</button></div></div>';
 }
 

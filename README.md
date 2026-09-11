@@ -180,6 +180,14 @@ Pakete landen dann als Artefakte statt am Release.
 
 1. **Morgens synchronisieren** – *Abgleich → Von Nextcloud laden.* Kurse,
    Stunden, Schüler:innen und Ablaufelemente liegen danach lokal vor.
+### Was „fertig" bedeutet
+
+Wie in der Nextcloud: Die Stunde ist durch, wenn der **aktuelle Schritt der
+letzte** ist und alles freigegeben wurde – es gibt dann schlicht kein weiteres
+Element mehr. Einen eigenen Endzustand „fertig ohne aktuellen Schritt" gibt es
+bewusst **nicht**; sonst würden beide Seiten dieselben Daten verschieden lesen.
+Ganz schließen lässt sich eine Stunde über *Zurücksetzen*.
+
 2. **Unterrichten** – *Heute* zeigt alle Stunden des Tages. Die laufende Stunde
    erscheint als Cockpit: links **Für die Klasse** (was projiziert wird), rechts
    **Nur für dich** (Lehrerhinweis zum aktuellen Schritt und Vorschau auf den
